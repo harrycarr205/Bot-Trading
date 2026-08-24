@@ -48,7 +48,7 @@ class Settings(BaseSettings):
 
     # Orchestration schedule (ARCHITECTURE.md §6) — standard 5-field cron syntax,
     # always interpreted in America/New_York regardless of host machine locale.
-    pre_market_cron: str = "0 8 * * mon-fri"
+    pre_market_cron: str = "35 9 * * mon-fri"
     midday_cron: str = "30 12 * * mon-fri"
 
     discord_webhook_url: str = ""

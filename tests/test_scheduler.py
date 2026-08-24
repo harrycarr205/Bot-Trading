@@ -6,7 +6,7 @@ from tradingsystem.orchestration.scheduler import build_scheduler
 
 def test_settings_default_cron_values():
     settings = Settings()
-    assert settings.pre_market_cron == "0 8 * * mon-fri"
+    assert settings.pre_market_cron == "35 9 * * mon-fri"
     assert settings.midday_cron == "30 12 * * mon-fri"
 
 

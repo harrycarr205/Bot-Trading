@@ -102,7 +102,8 @@ def test_market_closed_journals_all_tickers_and_skips_everything_else(db_session
     runs = db_session.query(AgentRun).all()
     assert {r.ticker for r in runs} == set(WATCHLIST)
     assert all(r.outcome == "market_closed" for r in runs)
-    assert db_session.query(PortfolioSnapshot).count() == 0
+    assert db_session.query(PortfolioSnapshot).count() == 1
+    assert float(db_session.query(PortfolioSnapshot).one().equity) == 100_000.0
     assert alerts == []
 
 

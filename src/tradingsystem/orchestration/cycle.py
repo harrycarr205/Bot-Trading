@@ -122,13 +122,13 @@ def run_full_cycle(
     heartbeat.record_heartbeat(session, run_type)
     session.commit()
 
+    ensure_snapshot_baseline(session, alpaca_client)
+    session.commit()
+
     market_status = alpaca_client.get_clock()
     if market_status != "open":
         _journal_skip(session, watchlist, run_type, market_status, outcome="market_closed")
         return
-
-    ensure_snapshot_baseline(session, alpaca_client)
-    session.commit()
 
     gate = check_breakers(session, alpaca_client, risk_config, settings)
     session.commit()
@@ -140,7 +140,7 @@ def run_full_cycle(
         try:
             result = run_research(
                 session, ticker, trade_date=_ny_today().isoformat(),
-                market_status=market_status, settings=settings,
+                market_status=market_status, run_type=run_type, settings=settings,
             )
             heartbeat.record_heartbeat(session, run_type, ticker=ticker)
             session.commit()
