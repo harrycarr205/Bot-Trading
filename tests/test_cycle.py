@@ -1,7 +1,8 @@
 import datetime
 
 from tradingsystem.config import RiskConfig
-from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, PortfolioSnapshot
+from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, Decision, Order, PortfolioSnapshot
+from tradingsystem.decision_engine import runner as runner_module
 from tradingsystem.execution.alpaca_client import AccountSnapshot
 from tradingsystem.orchestration import cycle
 
@@ -61,6 +62,36 @@ RISK_CONFIG = RiskConfig(
 WATCHLIST = ["AAPL", "MSFT"]
 
 
+def make_final_state(final_trade_decision="Buy: strong fundamentals"):
+    return {
+        "market_report": "market report",
+        "sentiment_report": "sentiment report",
+        "news_report": "news report",
+        "fundamentals_report": "fundamentals report",
+        "investment_debate_state": {"bull_history": "bull", "bear_history": "bear", "judge_decision": "judge"},
+        "trader_investment_plan": "trader plan",
+        "risk_debate_state": {
+            "aggressive_history": "aggressive", "conservative_history": "conservative",
+            "neutral_history": "neutral", "judge_decision": "risk judge",
+        },
+        "investment_plan": "investment plan",
+        "final_trade_decision": final_trade_decision,
+    }
+
+
+class ScriptedGraph:
+    calls = []
+
+    def __init__(self, debug=False, config=None):
+        pass
+
+    def propagate(self, ticker, trade_date):
+        outcome = ScriptedGraph.calls.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
 def test_market_closed_journals_all_tickers_and_skips_everything_else(db_session, monkeypatch):
     alerts = []
     monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
@@ -75,7 +106,12 @@ def test_market_closed_journals_all_tickers_and_skips_everything_else(db_session
     assert alerts == []
 
 
-def test_first_cycle_of_day_snapshots_baseline_and_does_not_trip(db_session):
+def test_first_cycle_of_day_snapshots_baseline_and_does_not_trip(db_session, monkeypatch):
+    ScriptedGraph.calls = [
+        (make_final_state("Hold: no clear edge"), "Hold"),
+        (make_final_state("Hold: no clear edge"), "Hold"),
+    ]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
     client = FakeAlpacaClient(market_status="open", equity=100_000.0)
 
     cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=WATCHLIST)
@@ -83,7 +119,9 @@ def test_first_cycle_of_day_snapshots_baseline_and_does_not_trip(db_session):
     snapshots = db_session.query(PortfolioSnapshot).all()
     assert len(snapshots) == 1
     assert float(snapshots[0].equity) == 100_000.0
-    assert db_session.query(AgentRun).count() == 0  # no skip-journal rows written; gate passed
+    assert db_session.query(AgentRun).count() == 2  # one per ticker; gate passed, loop ran
+    assert all(d.decision == "hold" for d in db_session.query(Decision).all())
+    assert db_session.query(Order).count() == 0
 
 
 def test_active_daily_breaker_journals_and_skips_and_alerts(db_session, monkeypatch):
@@ -119,3 +157,52 @@ def test_already_tripped_breaker_blocks_without_re_recording(db_session, monkeyp
     assert db_session.query(CircuitBreakerEvent).count() == 1  # not re-recorded
     runs = db_session.query(AgentRun).all()
     assert all(r.outcome == "circuit_breaker_active" for r in runs)
+
+
+def test_hold_decision_places_no_order(db_session, monkeypatch):
+    ScriptedGraph.calls = [(make_final_state("Hold: no clear edge"), "Hold")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    client = FakeAlpacaClient(market_status="open")
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
+
+    assert db_session.query(Decision).filter_by(decision="hold").count() == 1
+    assert db_session.query(Order).count() == 0
+    assert client.submit_calls == []
+
+
+def test_buy_decision_sizes_and_places_order(db_session, monkeypatch):
+    ScriptedGraph.calls = [(make_final_state("Buy: strong fundamentals"), "Buy")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    alerts = []
+    monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
+    from tradingsystem.execution.alpaca_client import SubmittedOrder
+    client = FakeAlpacaClient(market_status="open", equity=100_000.0, price=100.0,
+                               submit_response=SubmittedOrder(alpaca_order_id="abc123", status="new"))
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
+
+    assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]
+    order = db_session.query(Order).filter_by(alpaca_order_id="abc123").one()
+    assert order.ticker == "AAPL"
+    assert any(level == "info" and "Order placed" in message for level, message in alerts)
+
+
+def test_one_ticker_exception_does_not_stop_the_others(db_session, monkeypatch):
+    ScriptedGraph.calls = [
+        (make_final_state("Buy: strong fundamentals"), "Buy"),
+        (make_final_state("Buy: strong fundamentals"), "Buy"),
+    ]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    alerts = []
+    monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
+    from tradingsystem.execution.alpaca_client import SubmittedOrder
+    client = FakeAlpacaClient(market_status="open", equity=100_000.0, price=100.0,
+                               raise_on_price_for={"AAPL"},
+                               submit_response=SubmittedOrder(alpaca_order_id="xyz789", status="new"))
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL", "MSFT"])
+
+    assert client.submit_calls == [("MSFT", "buy", 100, 100.0)]
+    assert db_session.query(Order).count() == 1
+    assert any(level == "critical" and "AAPL" in message for level, message in alerts)

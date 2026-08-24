@@ -15,9 +15,12 @@ from sqlalchemy.orm import Session
 from tradingsystem.config import RiskConfig, Settings, load_risk_config, load_watchlist
 from tradingsystem.db.models import AgentRun, PortfolioSnapshot
 from tradingsystem.db.repositories import get_active_breaker_event, record_breaker_trip
+from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
+from tradingsystem.execution.executor import build_portfolio_state, place_order
 from tradingsystem.orchestration import discord_alerts, heartbeat
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
+from tradingsystem.risk.position_sizing import size_order
 
 log = logging.getLogger(__name__)
 
@@ -133,7 +136,51 @@ def run_full_cycle(
         _journal_skip(session, watchlist, run_type, market_status, outcome="circuit_breaker_active")
         return
 
-    # Per-ticker research/trade loop — Task 5.
+    for ticker in watchlist:
+        try:
+            result = run_research(
+                session, ticker, trade_date=_ny_today().isoformat(),
+                market_status=market_status, settings=settings,
+            )
+            heartbeat.record_heartbeat(session, run_type, ticker=ticker)
+            session.commit()
+
+            if not result.ok or result.decision == "hold":
+                continue
+
+            portfolio = build_portfolio_state(alpaca_client)
+            price = alpaca_client.get_latest_price(ticker)
+            proposal = size_order(
+                result.rating, ticker, portfolio, price,
+                risk_config.max_position_pct, data_timestamp=datetime.datetime.utcnow(),
+            )
+            if proposal is not None:
+                exec_result = place_order(
+                    session, alpaca_client, proposal, result.decision_id,
+                    settings.kill_switch_file, risk_config.max_position_pct,
+                    risk_config.cash_reserve_pct, risk_config.stale_data_max_age_minutes,
+                    now=datetime.datetime.utcnow(),
+                )
+                if exec_result.submitted:
+                    discord_alerts.send_alert(
+                        settings,
+                        f"Order placed: {proposal.side} {proposal.qty} {ticker} @ "
+                        f"{proposal.limit_price:.2f} (alpaca_order_id={exec_result.alpaca_order_id})",
+                        level="info",
+                    )
+                else:
+                    discord_alerts.send_alert(
+                        settings,
+                        f"Order rejected/failed for {ticker}: "
+                        f"{exec_result.rejection_reasons or exec_result.error}",
+                        level="warning",
+                    )
+            session.commit()
+        except Exception as exc:  # noqa: BLE001 - one ticker's crash must not stop the rest of the cycle
+            log.critical("unhandled error processing %s: %s", ticker, exc)
+            discord_alerts.send_alert(settings, f"Cycle error on {ticker}: {exc}", level="critical")
+            session.rollback()
+            continue
 
     heartbeat.record_heartbeat(session, run_type)
     session.commit()
