@@ -6,15 +6,16 @@ from tradingsystem.orchestration import discord_alerts
 
 
 class _CapturingPost:
-    def __init__(self, raise_error=None):
+    def __init__(self, raise_error=None, status_code=204):
         self.calls = []
         self.raise_error = raise_error
+        self.status_code = status_code
 
     def __call__(self, url, json=None, timeout=None):
         self.calls.append((url, json, timeout))
         if self.raise_error is not None:
             raise self.raise_error
-        return httpx.Response(204, request=httpx.Request("POST", url))
+        return httpx.Response(self.status_code, request=httpx.Request("POST", url))
 
 
 def test_send_alert_posts_to_configured_webhook(monkeypatch):
@@ -48,3 +49,29 @@ def test_send_alert_swallows_http_errors(monkeypatch):
     discord_alerts.send_alert(settings, "network is down", level="critical")  # must not raise
 
     assert len(fake_post.calls) == 1
+
+
+def test_send_alert_truncates_long_messages(monkeypatch):
+    fake_post = _CapturingPost()
+    monkeypatch.setattr(discord_alerts.httpx, "post", fake_post)
+    settings = Settings(discord_webhook_url="https://discord.example/webhook")
+
+    discord_alerts.send_alert(settings, "x" * 5000, level="critical")
+
+    assert len(fake_post.calls) == 1
+    payload = fake_post.calls[0][1]
+    content = payload["content"]
+    assert len(content) <= 1920  # 1900 message chars + "..." + "[CRITICAL] " prefix allowance
+    assert content.endswith("...")
+
+
+def test_send_alert_logs_warning_on_error_status_and_does_not_raise(monkeypatch, caplog):
+    fake_post = _CapturingPost(status_code=401)
+    monkeypatch.setattr(discord_alerts.httpx, "post", fake_post)
+    settings = Settings(discord_webhook_url="https://discord.example/webhook")
+
+    with caplog.at_level("WARNING"):
+        discord_alerts.send_alert(settings, "webhook revoked", level="critical")  # must not raise
+
+    assert len(fake_post.calls) == 1
+    assert any("401" in record.message for record in caplog.records)

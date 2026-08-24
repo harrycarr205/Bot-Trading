@@ -20,7 +20,16 @@ def send_alert(settings: Settings, message: str, level: str = "info") -> None:
     if not settings.discord_webhook_url:
         log.info("[discord alert suppressed, no webhook configured] [%s] %s", level.upper(), message)
         return
+    if len(message) > 1900:
+        message = message[:1900] + "..."
     try:
-        httpx.post(settings.discord_webhook_url, json={"content": f"[{level.upper()}] {message}"}, timeout=10)
+        response = httpx.post(
+            settings.discord_webhook_url, json={"content": f"[{level.upper()}] {message}"}, timeout=10,
+        )
+        if response.status_code >= 400:
+            log.warning(
+                "Discord alert webhook returned status %d: %s",
+                response.status_code, response.text[:500],
+            )
     except httpx.HTTPError as exc:
         log.warning("failed to send Discord alert: %s", exc)
