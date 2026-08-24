@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.2",
     "PyYAML>=6.0",
     "alpaca-py>=0.30",
+    "apscheduler>=3.10",
     "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@v0.3.1",
 ]
 

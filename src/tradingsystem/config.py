@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # covers the graph raising on unrecoverable malformed structured output.
     tradingagents_run_max_attempts: int = 2
 
+    # Orchestration schedule (ARCHITECTURE.md §6) — standard 5-field cron syntax,
+    # always interpreted in America/New_York regardless of host machine locale.
+    pre_market_cron: str = "0 8 * * mon-fri"
+    midday_cron: str = "30 12 * * mon-fri"
+
     discord_webhook_url: str = ""
 
     kill_switch_file: str = str(REPO_ROOT / "KILL_SWITCH")
