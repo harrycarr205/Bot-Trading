@@ -11,6 +11,8 @@ import dataclasses
 import datetime
 from typing import Protocol
 
+from alpaca.data.historical.stock import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestTradeRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import LimitOrderRequest
@@ -44,6 +46,7 @@ class AlpacaClientProtocol(Protocol):
     def get_positions(self) -> dict[str, float]: ...
     def get_open_orders(self) -> set[tuple[str, str]]: ...
     def get_clock(self) -> str: ...
+    def get_latest_price(self, ticker: str) -> float: ...
     def submit_limit_order(
         self, ticker: str, side: str, qty: float, limit_price: float
     ) -> SubmittedOrder: ...
@@ -67,6 +70,11 @@ class AlpacaClient:
             secret_key=settings.alpaca_paper_api_secret,
             paper=True,
         )
+        # Market data is a separate alpaca-py client from the trading client.
+        self._data_client = StockHistoricalDataClient(
+            api_key=settings.alpaca_paper_api_key,
+            secret_key=settings.alpaca_paper_api_secret,
+        )
 
     def get_account(self) -> AccountSnapshot:
         account = self._client.get_account()
@@ -83,6 +91,12 @@ class AlpacaClient:
     def get_clock(self) -> str:
         clock = self._client.get_clock()
         return "open" if clock.is_open else "closed"
+
+    def get_latest_price(self, ticker: str) -> float:
+        trades = self._data_client.get_stock_latest_trade(
+            StockLatestTradeRequest(symbol_or_symbols=ticker)
+        )
+        return float(trades[ticker].price)
 
     def submit_limit_order(
         self, ticker: str, side: str, qty: float, limit_price: float

@@ -198,6 +198,35 @@ cycle), so watch total cycle time as the list grows.
   assumed resolved just because the old rule was formally retired.
 - **Intended live capital amount**: not set yet (paper balance is $100k;
   live figure to be decided at go-live time, separate from this document).
+- **TradingAgents/Ollama live smoke test pending on GPU hardware**: the
+  integration (`src/tradingsystem/decision_engine/`, `src/tradingsystem/risk/
+  position_sizing.py`) is built and covered by 51 passing unit tests, all
+  against a mocked `TradingAgentsGraph` — no real Ollama call in the test
+  suite. A live end-to-end run (`run_research("AAPL", ...)`) was attempted on
+  the dev laptop (no dedicated GPU — Ollama there runs `qwen2.5:7b-instruct`
+  on CPU) and was still mid-pipeline (past all four analysts, into the
+  bull/bear debate) after 40+ minutes before being interrupted. Nothing was
+  persisted (transaction rolled back cleanly). **Next step on the actual RTX
+  3060 Ti machine**: `pip install -e ".[dev]"`, confirm `ollama pull
+  qwen2.5:7b-instruct` and `docker compose up -d`, then run `run_research`
+  for one ticker and time it — this is the data point ARCHITECTURE.md §5's
+  "watch total cycle time as the ticker list grows" note depends on, and it
+  directly affects whether the twice-daily/3-ticker cadence in §4 is
+  practical as specified. Also worth noting from the attempted run: the
+  Sentiment Analyst and Research Manager both hit local-model structured-
+  output misses and fell back to free text automatically (TradingAgents'
+  own built-in fallback) — consistent with §5's non-negotiable that Ollama
+  tool-calling reliability is materially below cloud models; worth watching
+  how often this happens once full runs complete.
+- Two mid-build discoveries also changed assumptions from the original brief
+  (both resolved, see the TradingAgents-integration commit): PyPI's
+  `tradingagents` package is **not** the real TauricResearch project (a
+  same-named, different, unaffiliated package — install from the pinned git
+  tag instead, already reflected in `pyproject.toml`); and the real package's
+  Portfolio Manager now emits a **5-tier rating** (Buy/Overweight/Hold/
+  Underweight/Sell), not 3-way BUY/SELL/HOLD — handled via
+  `risk/position_sizing.py`'s conviction-based sizing (Overweight/Underweight
+  = half size of Buy/Sell).
 
 ---
 

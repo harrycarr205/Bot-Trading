@@ -49,7 +49,10 @@ class Decision(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     agent_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_runs.id"))
-    decision: Mapped[str]  # "buy" | "sell" | "hold"
+    # Raw 5-tier TradingAgents Portfolio Manager rating: "Buy" | "Overweight" |
+    # "Hold" | "Underweight" | "Sell".
+    rating: Mapped[str]
+    decision: Mapped[str]  # collapsed 3-way bucket: "buy" | "sell" | "hold"
     reasoning_summary: Mapped[str]
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
 

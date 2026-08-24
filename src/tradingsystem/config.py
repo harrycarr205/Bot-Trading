@@ -31,8 +31,20 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://trading:trading@localhost:5432/trading"
 
-    ollama_base_url: str = "http://localhost:11434"
+    # TradingAgents' Ollama provider uses this URL as-is (no auto-appended
+    # /v1) when OLLAMA_BASE_URL is set — confirmed from the installed
+    # package's provider table.
+    ollama_base_url: str = "http://localhost:11434/v1"
     tradingagents_model: str = "qwen2.5:7b-instruct"
+    # ARCHITECTURE.md §5: shallow, single-round debate to validate the
+    # pipeline end-to-end first. Not part of risk_config.yaml — that file is
+    # specifically the risk *validation* numbers, not decision-engine depth.
+    tradingagents_max_debate_rounds: int = 1
+    tradingagents_max_risk_discuss_rounds: int = 1
+    # Outer retry budget around a whole TradingAgentsGraph.propagate() call,
+    # separate from TradingAgents' own internal SDK-level llm_max_retries —
+    # covers the graph raising on unrecoverable malformed structured output.
+    tradingagents_run_max_attempts: int = 2
 
     discord_webhook_url: str = ""
 

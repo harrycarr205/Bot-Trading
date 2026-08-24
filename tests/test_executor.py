@@ -46,6 +46,9 @@ class FakeAlpacaClient:
     def get_clock(self):
         return self.market_status
 
+    def get_latest_price(self, ticker):
+        return 100.0
+
     def submit_limit_order(self, ticker, side, qty, limit_price):
         self.submit_calls.append((ticker, side, qty, limit_price))
         if self.submit_error is not None:
@@ -70,7 +73,7 @@ def make_decision(session) -> uuid.UUID:
     )
     session.add(agent_run)
     session.flush()
-    decision = Decision(agent_run_id=agent_run.id, decision="buy", reasoning_summary="test")
+    decision = Decision(agent_run_id=agent_run.id, rating="Buy", decision="buy", reasoning_summary="test")
     session.add(decision)
     session.flush()
     return decision.id
