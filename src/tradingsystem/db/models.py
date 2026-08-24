@@ -144,3 +144,12 @@ class TradingMemoryEntry(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     source: Mapped[str] = mapped_column(default="tradingagents_memory")
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
+
+
+class SchedulerHeartbeat(Base):
+    __tablename__ = "scheduler_heartbeats"
+
+    component: Mapped[str] = mapped_column(primary_key=True)
+    last_seen_at: Mapped[datetime.datetime]
+    last_run_type: Mapped[str | None]
+    last_ticker: Mapped[str | None]
