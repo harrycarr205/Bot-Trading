@@ -74,6 +74,7 @@ def run_research(
     ticker: str,
     trade_date: str,
     market_status: str,
+    run_type: str = "pre_market",
     settings: Settings | None = None,
 ) -> ResearchResult:
     settings = settings or Settings()
@@ -81,7 +82,7 @@ def run_research(
 
     agent_run = AgentRun(
         ticker=ticker,
-        run_type="pre_market",
+        run_type=run_type,
         started_at=now,
         finished_at=None,
         market_status=market_status,
