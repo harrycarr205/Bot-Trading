@@ -1,0 +1,16 @@
+# Risk control parameters, confirmed with the user in ARCHITECTURE.md section 4.
+# Changing these is a deliberate decision, not a routine tuning knob — the
+# validation layer treats this file as gospel and re-derives all checks from
+# it independently of anything the trading agent claims.
+
+max_position_pct: 0.10        # max % of portfolio value in a single position
+cash_reserve_pct: 0.20        # minimum % of portfolio that must stay unallocated
+stop_loss_pct: 0.08           # fixed stop-loss per position
+
+daily_drawdown_breaker_pct: 0.03   # auto-pause trading if daily drawdown exceeds this
+weekly_drawdown_breaker_pct: 0.08  # auto-pause trading if weekly drawdown exceeds this
+
+# Circuit breakers require full manual review to resume — there is
+# deliberately no config knob for automated or agent-triggered reset.
+
+stale_data_max_age_minutes: 15  # reject a decision if underlying market data is older than this

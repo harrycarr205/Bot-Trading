@@ -1,0 +1,9 @@
+# Freely editable — add/remove tickers here, takes effect on the next
+# scheduled run. No code change required. See ARCHITECTURE.md section 4
+# note on watchlist growth: you're responsible for judgment calls on a new
+# ticker's liquidity/coverage; the system doesn't gate this automatically.
+# Each additional ticker adds real local-inference time per run.
+tickers:
+  - AAPL
+  - MSFT
+  - SPY
