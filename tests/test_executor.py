@@ -149,6 +149,20 @@ def test_approved_order_submits_and_persists(db_session, tmp_path):
     assert order.decision_id == decision_id
 
 
+def test_default_now_uses_utc_not_local(db_session, tmp_path):
+    kill_switch_file = tmp_path / "KILL_SWITCH"
+    client = FakeAlpacaClient(submit_response=SubmittedOrder(alpaca_order_id="utc1", status="new"))
+    decision_id = make_decision(db_session)
+    proposal = make_proposal(data_timestamp=datetime.datetime.utcnow())
+
+    result = place_order(
+        db_session, client, proposal, decision_id, str(kill_switch_file), **COMMON_KWARGS
+    )
+
+    assert result.submitted
+    assert "stale_data" not in result.rejection_reasons
+
+
 def test_alpaca_api_error_returns_error_result_no_retry(db_session, tmp_path):
     kill_switch_file = tmp_path / "KILL_SWITCH"
     client = FakeAlpacaClient(submit_error=APIError("simulated failure"))

@@ -67,7 +67,7 @@ def place_order(
         proposal,
         portfolio,
         market_status=market_status,
-        now=now or datetime.datetime.now(),
+        now=now or datetime.datetime.utcnow(),
         max_position_pct=max_position_pct,
         cash_reserve_pct=cash_reserve_pct,
         stale_data_max_age_minutes=stale_data_max_age_minutes,
