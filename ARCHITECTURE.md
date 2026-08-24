@@ -198,26 +198,36 @@ cycle), so watch total cycle time as the list grows.
   assumed resolved just because the old rule was formally retired.
 - **Intended live capital amount**: not set yet (paper balance is $100k;
   live figure to be decided at go-live time, separate from this document).
-- **TradingAgents/Ollama live smoke test pending on GPU hardware**: the
-  integration (`src/tradingsystem/decision_engine/`, `src/tradingsystem/risk/
-  position_sizing.py`) is built and covered by 51 passing unit tests, all
-  against a mocked `TradingAgentsGraph` — no real Ollama call in the test
-  suite. A live end-to-end run (`run_research("AAPL", ...)`) was attempted on
-  the dev laptop (no dedicated GPU — Ollama there runs `qwen2.5:7b-instruct`
-  on CPU) and was still mid-pipeline (past all four analysts, into the
-  bull/bear debate) after 40+ minutes before being interrupted. Nothing was
-  persisted (transaction rolled back cleanly). **Next step on the actual RTX
-  3060 Ti machine**: `pip install -e ".[dev]"`, confirm `ollama pull
-  qwen2.5:7b-instruct` and `docker compose up -d`, then run `run_research`
-  for one ticker and time it — this is the data point ARCHITECTURE.md §5's
-  "watch total cycle time as the ticker list grows" note depends on, and it
-  directly affects whether the twice-daily/3-ticker cadence in §4 is
-  practical as specified. Also worth noting from the attempted run: the
-  Sentiment Analyst and Research Manager both hit local-model structured-
-  output misses and fell back to free text automatically (TradingAgents'
-  own built-in fallback) — consistent with §5's non-negotiable that Ollama
-  tool-calling reliability is materially below cloud models; worth watching
-  how often this happens once full runs complete.
+- **TradingAgents/Ollama live smoke test — completed 2026-08-24 on GPU
+  hardware**: after an earlier attempt on the dev laptop (no dedicated GPU,
+  CPU-only Ollama) stalled 40+ minutes mid-pipeline without finishing, a full
+  live `run_research("AAPL", "2026-08-21")` run completed successfully on the
+  actual GPU desktop (RTX 4060 Ti, 8GB VRAM — supersedes the RTX 3060 Ti
+  assumed elsewhere in this document; same 8GB VRAM class, so the
+  one-7-8B-model-resident capacity reasoning in §5 still holds) in **22.2
+  minutes**, returning a valid `Underweight`/`sell` decision with full
+  reasoning. `ollama ps` during the run showed the model only 73% GPU / 27%
+  CPU resident — TradingAgents' 32k-token context window doesn't fully fit
+  alongside the model weights in 8GB, which is the likely reason this figure
+  is slower than a fully-GPU-resident 7B model would be. This is the data
+  point §5's "watch total cycle time as the ticker list grows" note depended
+  on: a 3-ticker twice-daily cycle costs roughly an hour of wall time per run
+  as currently configured. One Sentiment Analyst structured-output miss
+  occurred during the run and fell back to free text automatically
+  (TradingAgents' own built-in fallback) — consistent with §5's non-negotiable
+  that Ollama tool-calling reliability is materially below cloud models; a
+  single occurrence in one run, not yet enough data to say how often this
+  recurs across many runs.
+- **Local-only Ollama inference — open to revisiting if performance proves
+  limiting.** The non-negotiable above (all runtime LLM inference stays
+  local, no cloud billing/dependency in the trading loop) still holds. The
+  ~22 min/ticker figure and the 27% CPU-offload finding above are the
+  concrete trigger this bullet exists for: if the twice-daily/3-ticker pace
+  proves impractical once the scheduler is actually running unattended,
+  moving some or all inference to a paid, hosted Ollama Cloud endpoint is the
+  option to revisit — explicitly evaluated then, not defaulted into now,
+  since it reverses the local-only principle above and needs its own
+  cost/reliability/data-handling discussion at that point.
 - Two mid-build discoveries also changed assumptions from the original brief
   (both resolved, see the TradingAgents-integration commit): PyPI's
   `tradingagents` package is **not** the real TauricResearch project (a
