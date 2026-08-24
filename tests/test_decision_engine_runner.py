@@ -71,6 +71,8 @@ def test_successful_run_persists_agent_run_decision_and_transcript(db_session, m
     assert "portfolio_manager_final_decision" in roles
     assert len(transcripts) == 14
 
+    assert result.decision_id == decision.id
+
 
 def test_unrecognized_rating_retries_then_fails_closed(db_session, monkeypatch):
     ScriptedGraph.calls = [

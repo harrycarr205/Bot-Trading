@@ -40,6 +40,7 @@ _COLLAPSE = {
 class ResearchResult:
     ok: bool
     agent_run_id: uuid.UUID
+    decision_id: uuid.UUID | None = None
     rating: str | None = None
     decision: str | None = None
     reasoning_summary: str | None = None
@@ -124,6 +125,7 @@ def run_research(
         return ResearchResult(
             ok=True,
             agent_run_id=agent_run.id,
+            decision_id=decision.id,
             rating=rating,
             decision=decision.decision,
             reasoning_summary=decision.reasoning_summary,
