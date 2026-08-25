@@ -102,11 +102,23 @@ def place_order(
     return ExecutionResult(submitted=True, alpaca_order_id=submitted.alpaca_order_id)
 
 
-def sync_order_fills(session: Session, client: AlpacaClientProtocol, order: Order) -> None:
-    """Poll Alpaca for this order's current status and persist any new fill(s).
+_TERMINAL_ORDER_STATUSES = {"filled", "canceled", "expired", "rejected"}
 
-    Not wired to any scheduler yet (orchestration/APScheduler milestone).
+
+def sync_all_open_orders(session: Session, client: AlpacaClientProtocol) -> None:
+    """Poll and persist fill updates for every order not yet in a terminal state.
+
+    Called once per orchestration cycle (orchestration/cycle.py) — not scheduled
+    independently, since the twice-daily cadence is frequent enough to keep
+    order/fill/P&L data reasonably current.
     """
+    open_orders = session.query(Order).filter(Order.status.notin_(_TERMINAL_ORDER_STATUSES)).all()
+    for order in open_orders:
+        sync_order_fills(session, client, order)
+
+
+def sync_order_fills(session: Session, client: AlpacaClientProtocol, order: Order) -> None:
+    """Poll Alpaca for this order's current status and persist any new fill(s)."""
     status = client.get_order(order.alpaca_order_id)
     order.status = status.status
 

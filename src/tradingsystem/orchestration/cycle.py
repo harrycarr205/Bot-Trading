@@ -17,7 +17,7 @@ from tradingsystem.db.models import AgentRun, PortfolioSnapshot
 from tradingsystem.db.repositories import get_active_breaker_event, record_breaker_trip
 from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
-from tradingsystem.execution.executor import build_portfolio_state, place_order
+from tradingsystem.execution.executor import build_portfolio_state, place_order, sync_all_open_orders
 from tradingsystem.orchestration import discord_alerts, heartbeat
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
 from tradingsystem.risk.position_sizing import size_order
@@ -120,6 +120,9 @@ def run_full_cycle(
     watchlist = watchlist if watchlist is not None else load_watchlist().tickers
 
     heartbeat.record_heartbeat(session, run_type)
+    session.commit()
+
+    sync_all_open_orders(session, alpaca_client)
     session.commit()
 
     ensure_snapshot_baseline(session, alpaca_client)

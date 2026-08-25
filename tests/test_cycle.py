@@ -3,14 +3,14 @@ import datetime
 from tradingsystem.config import RiskConfig
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, Decision, Order, PortfolioSnapshot
 from tradingsystem.decision_engine import runner as runner_module
-from tradingsystem.execution.alpaca_client import AccountSnapshot
+from tradingsystem.execution.alpaca_client import AccountSnapshot, OrderStatus
 from tradingsystem.orchestration import cycle
 
 
 class FakeAlpacaClient:
     def __init__(self, equity=100_000.0, cash=80_000.0, positions=None, open_orders=None,
                  market_status="open", price=100.0, price_overrides=None,
-                 raise_on_price_for=None, submit_response=None):
+                 raise_on_price_for=None, submit_response=None, order_statuses=None):
         self.equity = equity
         self.cash = cash
         self.positions = positions or {}
@@ -20,6 +20,7 @@ class FakeAlpacaClient:
         self.price_overrides = price_overrides or {}
         self.raise_on_price_for = raise_on_price_for or set()
         self.submit_response = submit_response
+        self.order_statuses = order_statuses or {}
         self.submit_calls = []
 
     def get_account(self):
@@ -44,7 +45,7 @@ class FakeAlpacaClient:
         return self.submit_response
 
     def get_order(self, alpaca_order_id):
-        raise NotImplementedError
+        return self.order_statuses[alpaca_order_id]
 
     def cancel_order(self, alpaca_order_id):
         pass
@@ -207,3 +208,37 @@ def test_one_ticker_exception_does_not_stop_the_others(db_session, monkeypatch):
     assert client.submit_calls == [("MSFT", "buy", 100, 100.0)]
     assert db_session.query(Order).count() == 1
     assert any(level == "critical" and "AAPL" in message for level, message in alerts)
+
+
+def test_run_full_cycle_syncs_open_order_fills_every_run(db_session):
+    now = datetime.datetime(2026, 1, 5, 14, 30)
+    run = AgentRun(
+        ticker="AAPL", run_type="pre_market", started_at=now, finished_at=now,
+        market_status="open", outcome="decision_recorded",
+    )
+    db_session.add(run)
+    db_session.flush()
+    decision = Decision(agent_run_id=run.id, rating="Buy", decision="buy", reasoning_summary="test")
+    db_session.add(decision)
+    db_session.flush()
+    order = Order(
+        decision_id=decision.id, ticker="AAPL", side="buy", qty=10, limit_price=100.0,
+        status="new", alpaca_order_id="open1", submitted_at=now,
+    )
+    db_session.add(order)
+    db_session.flush()
+
+    # Market closed keeps this test focused on the fill-sync step, which
+    # must run regardless of market status — it isn't part of the ticker
+    # research loop, which is what the market-status gate short-circuits.
+    client = FakeAlpacaClient(market_status="closed", order_statuses={
+        "open1": OrderStatus(
+            alpaca_order_id="open1", status="filled", filled_qty=10.0, filled_avg_price=101.0, filled_at=now,
+        ),
+    })
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=WATCHLIST)
+
+    assert order.status == "filled"
+    assert len(order.fills) == 1
+    assert order.fills[0].fill_qty == 10.0

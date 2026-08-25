@@ -4,9 +4,9 @@ import uuid
 import pytest
 from alpaca.common.exceptions import APIError
 
-from tradingsystem.db.models import AgentRun, Decision
+from tradingsystem.db.models import AgentRun, Decision, Order
 from tradingsystem.execution.alpaca_client import AccountSnapshot, OrderStatus, SubmittedOrder
-from tradingsystem.execution.executor import place_order, sync_order_fills
+from tradingsystem.execution.executor import place_order, sync_all_open_orders, sync_order_fills
 from tradingsystem.risk.validation import OrderProposal
 
 NOW = datetime.datetime(2026, 1, 5, 14, 30)
@@ -23,6 +23,7 @@ class FakeAlpacaClient:
         submit_response=None,
         submit_error=None,
         order_status=None,
+        order_statuses=None,
     ):
         self.equity = equity
         self.cash = cash
@@ -32,6 +33,7 @@ class FakeAlpacaClient:
         self.submit_response = submit_response
         self.submit_error = submit_error
         self.order_status = order_status
+        self.order_statuses = order_statuses or {}
         self.submit_calls = []
 
     def get_account(self):
@@ -56,7 +58,7 @@ class FakeAlpacaClient:
         return self.submit_response
 
     def get_order(self, alpaca_order_id):
-        return self.order_status
+        return self.order_statuses.get(alpaca_order_id, self.order_status)
 
     def cancel_order(self, alpaca_order_id):
         pass
@@ -201,3 +203,38 @@ def test_sync_order_fills_persists_fill_and_updates_status(db_session, tmp_path)
     assert len(order.fills) == 1
     assert order.fills[0].fill_qty == 1.0
     assert order.fills[0].fill_price == 99.5
+
+
+def test_sync_all_open_orders_skips_terminal_orders(db_session):
+    decision_id = make_decision(db_session)
+
+    open_order = Order(
+        decision_id=decision_id, ticker="AAPL", side="buy", qty=10, limit_price=100.0,
+        status="new", alpaca_order_id="open1", submitted_at=NOW,
+    )
+    filled_order = Order(
+        decision_id=decision_id, ticker="AAPL", side="buy", qty=5, limit_price=100.0,
+        status="filled", alpaca_order_id="filled1", submitted_at=NOW,
+    )
+    db_session.add(open_order)
+    db_session.add(filled_order)
+    db_session.flush()
+
+    client = FakeAlpacaClient(order_statuses={
+        "open1": OrderStatus(
+            alpaca_order_id="open1", status="filled", filled_qty=10.0, filled_avg_price=101.0, filled_at=NOW,
+        ),
+        "filled1": OrderStatus(
+            alpaca_order_id="filled1", status="filled", filled_qty=5.0, filled_avg_price=99.0, filled_at=NOW,
+        ),
+    })
+
+    sync_all_open_orders(db_session, client)
+
+    assert open_order.status == "filled"
+    assert len(open_order.fills) == 1
+    assert open_order.fills[0].fill_qty == 10.0
+    # filled_order was already terminal — never polled, so its (identically
+    # "fillable") canned response never gets applied. If this assertion
+    # fails, sync_all_open_orders polled an order it shouldn't have.
+    assert filled_order.fills == []
