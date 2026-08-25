@@ -144,6 +144,10 @@ class TradingMemoryEntry(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     source: Mapped[str] = mapped_column(default="tradingagents_memory")
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
+    # Dedup key ("date|ticker") for orchestration/memory_ingestion.py — a
+    # resolved TradingAgents memory-log entry is immutable once written, so
+    # this is enough to avoid re-ingesting the same entry every cycle.
+    source_key: Mapped[str | None]
 
 
 class SchedulerHeartbeat(Base):

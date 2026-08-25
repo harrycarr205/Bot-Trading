@@ -18,7 +18,7 @@ from tradingsystem.db.repositories import get_active_breaker_event, record_break
 from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
 from tradingsystem.execution.executor import build_portfolio_state, place_order, sync_all_open_orders
-from tradingsystem.orchestration import discord_alerts, heartbeat
+from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
 from tradingsystem.risk.position_sizing import size_order
 from tradingsystem.risk.stop_loss import is_stop_loss_triggered
@@ -192,6 +192,9 @@ def run_full_cycle(
     session.commit()
 
     sync_all_open_orders(session, alpaca_client)
+    session.commit()
+
+    memory_ingestion.ingest_trading_memory(session, settings)
     session.commit()
 
     ensure_snapshot_baseline(session, alpaca_client)

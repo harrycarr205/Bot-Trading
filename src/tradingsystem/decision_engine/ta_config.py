@@ -21,4 +21,6 @@ def build_ta_config(settings: Settings) -> dict[str, Any]:
     config["backend_url"] = settings.ollama_base_url
     config["max_debate_rounds"] = settings.tradingagents_max_debate_rounds
     config["max_risk_discuss_rounds"] = settings.tradingagents_max_risk_discuss_rounds
+    if settings.tradingagents_memory_log_path:
+        config["memory_log_path"] = settings.tradingagents_memory_log_path
     return config

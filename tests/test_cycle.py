@@ -1,5 +1,7 @@
 import datetime
 
+import pytest
+
 from tradingsystem.config import RiskConfig
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, Decision, Order, PortfolioSnapshot
 from tradingsystem.decision_engine import runner as runner_module
@@ -66,6 +68,14 @@ RISK_CONFIG = RiskConfig(
 )
 
 WATCHLIST = ["AAPL", "MSFT"]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_memory_log(monkeypatch, tmp_path):
+    # run_full_cycle calls memory_ingestion.ingest_trading_memory every run.
+    # Tests here don't pass settings= explicitly, so Settings() would
+    # otherwise resolve to this machine's real trading_memory.md.
+    monkeypatch.setenv("TRADINGAGENTS_MEMORY_LOG_PATH", str(tmp_path / "test_trading_memory.md"))
 
 
 def make_final_state(final_trade_decision="Buy: strong fundamentals"):

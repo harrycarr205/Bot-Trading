@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # separate from TradingAgents' own internal SDK-level llm_max_retries —
     # covers the graph raising on unrecoverable malformed structured output.
     tradingagents_run_max_attempts: int = 2
+    # Empty means "use TradingAgents' own default location" — set only to
+    # override where its trading_memory.md reflection log lives, e.g. for
+    # test isolation or relocating it into a shared/managed path.
+    tradingagents_memory_log_path: str = ""
 
     # Orchestration schedule (ARCHITECTURE.md §6) — standard 5-field cron syntax,
     # always interpreted in America/New_York regardless of host machine locale.
