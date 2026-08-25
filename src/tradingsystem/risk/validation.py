@@ -60,6 +60,8 @@ def check_order_type(order_type: str) -> CheckResult:
 def check_position_size(
     proposal: OrderProposal, portfolio: PortfolioState, max_position_pct: float
 ) -> CheckResult:
+    if proposal.side != "buy":
+        return CheckResult(True)
     if portfolio.equity <= 0:
         return CheckResult(False, "portfolio equity is zero or negative")
     order_notional = proposal.qty * proposal.limit_price

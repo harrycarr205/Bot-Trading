@@ -70,6 +70,14 @@ def test_position_size_over_limit_fails():
     assert not check_position_size(proposal, portfolio, max_position_pct=0.10).passed
 
 
+def test_position_size_full_exit_sell_passes_even_near_cap():
+    # A full-exit sell of a position already at the cap must not be blocked by
+    # the position-size check — this is exactly the case a stop-loss needs.
+    proposal = make_proposal(side="sell", qty=95, limit_price=100.0)  # $9,500 sell
+    portfolio = make_portfolio(equity=100_000.0, position_value_by_ticker={"AAPL": 9_500.0})
+    assert check_position_size(proposal, portfolio, max_position_pct=0.10).passed
+
+
 def test_position_size_zero_equity_fails_closed():
     proposal = make_proposal()
     portfolio = make_portfolio(equity=0.0)

@@ -41,9 +41,18 @@ class OrderStatus:
     filled_at: datetime.datetime | None
 
 
+@dataclasses.dataclass(frozen=True)
+class PositionDetail:
+    ticker: str
+    qty: float
+    avg_entry_price: float
+    current_price: float
+
+
 class AlpacaClientProtocol(Protocol):
     def get_account(self) -> AccountSnapshot: ...
     def get_positions(self) -> dict[str, float]: ...
+    def get_position_details(self) -> list[PositionDetail]: ...
     def get_open_orders(self) -> set[tuple[str, str]]: ...
     def get_clock(self) -> str: ...
     def get_latest_price(self, ticker: str) -> float: ...
@@ -83,6 +92,18 @@ class AlpacaClient:
     def get_positions(self) -> dict[str, float]:
         positions = self._client.get_all_positions()
         return {p.symbol: float(p.market_value) for p in positions}
+
+    def get_position_details(self) -> list[PositionDetail]:
+        positions = self._client.get_all_positions()
+        return [
+            PositionDetail(
+                ticker=p.symbol,
+                qty=float(p.qty),
+                avg_entry_price=float(p.avg_entry_price),
+                current_price=float(p.current_price),
+            )
+            for p in positions
+        ]
 
     def get_open_orders(self) -> set[tuple[str, str]]:
         orders = self._client.get_orders()

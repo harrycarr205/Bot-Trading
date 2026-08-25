@@ -13,7 +13,7 @@ import zoneinfo
 from sqlalchemy.orm import Session
 
 from tradingsystem.config import RiskConfig, Settings, load_risk_config, load_watchlist
-from tradingsystem.db.models import AgentRun, PortfolioSnapshot
+from tradingsystem.db.models import AgentRun, Decision, PortfolioSnapshot
 from tradingsystem.db.repositories import get_active_breaker_event, record_breaker_trip
 from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
@@ -21,6 +21,8 @@ from tradingsystem.execution.executor import build_portfolio_state, place_order,
 from tradingsystem.orchestration import discord_alerts, heartbeat
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
 from tradingsystem.risk.position_sizing import size_order
+from tradingsystem.risk.stop_loss import is_stop_loss_triggered
+from tradingsystem.risk.validation import OrderProposal
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +109,73 @@ def check_breakers(
     return BreakerGateResult(blocked=bool(tripped_types), tripped_types=tripped_types)
 
 
+def check_and_execute_stop_losses(
+    session: Session, alpaca_client: AlpacaClientProtocol, risk_config: RiskConfig, settings: Settings
+) -> None:
+    """Deterministic per-position stop-loss — ARCHITECTURE.md §4.
+
+    Scans every live Alpaca position (not just the current watchlist — a
+    ticker dropped from the watchlist while still held must still be
+    protected) and force-exits any position down more than stop_loss_pct
+    from its average entry price. Runs before check_breakers so a stop-loss
+    still fires even while a circuit breaker is tripped: a breaker pauses
+    new discretionary trading, but a stop-loss is a defensive exit, not a
+    new speculative trade.
+
+    Order.decision_id is a required FK — there is no TradingAgents decision
+    behind a stop-loss sell, so a minimal AgentRun+Decision pair is
+    synthesized to hold the audit trail (visible in the dashboard journal
+    like any other order) without a schema change.
+    """
+    now = datetime.datetime.utcnow()
+    for position in alpaca_client.get_position_details():
+        if not is_stop_loss_triggered(position.avg_entry_price, position.current_price, risk_config.stop_loss_pct):
+            continue
+
+        drawdown_pct = (position.avg_entry_price - position.current_price) / position.avg_entry_price
+        reasoning = (
+            f"Stop-loss triggered: {position.ticker} down {drawdown_pct:.2%} from avg entry "
+            f"${position.avg_entry_price:.2f} to ${position.current_price:.2f} "
+            f"(threshold {risk_config.stop_loss_pct:.0%})"
+        )
+
+        run = AgentRun(
+            ticker=position.ticker, run_type="stop_loss", started_at=now, finished_at=now,
+            market_status="open", outcome="stop_loss_triggered",
+        )
+        session.add(run)
+        session.flush()
+        decision = Decision(agent_run_id=run.id, rating="Sell", decision="sell", reasoning_summary=reasoning)
+        session.add(decision)
+        session.flush()
+
+        proposal = OrderProposal(
+            ticker=position.ticker, side="sell", order_type="limit",
+            qty=position.qty, limit_price=position.current_price, data_timestamp=now,
+        )
+        exec_result = place_order(
+            session, alpaca_client, proposal, decision.id,
+            settings.kill_switch_file, risk_config.max_position_pct,
+            risk_config.cash_reserve_pct, risk_config.stale_data_max_age_minutes,
+            now=now,
+        )
+        if exec_result.submitted:
+            discord_alerts.send_alert(
+                settings,
+                f"STOP-LOSS: sold {proposal.qty} {position.ticker} @ {proposal.limit_price:.2f} "
+                f"({reasoning}, alpaca_order_id={exec_result.alpaca_order_id})",
+                level="critical",
+            )
+        else:
+            discord_alerts.send_alert(
+                settings,
+                f"STOP-LOSS FAILED to execute for {position.ticker}: "
+                f"{exec_result.rejection_reasons or exec_result.error} ({reasoning})",
+                level="critical",
+            )
+        session.commit()
+
+
 def run_full_cycle(
     session: Session,
     alpaca_client: AlpacaClientProtocol,
@@ -132,6 +201,8 @@ def run_full_cycle(
     if market_status != "open":
         _journal_skip(session, watchlist, run_type, market_status, outcome="market_closed")
         return
+
+    check_and_execute_stop_losses(session, alpaca_client, risk_config, settings)
 
     gate = check_breakers(session, alpaca_client, risk_config, settings)
     session.commit()

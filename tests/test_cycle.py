@@ -10,7 +10,8 @@ from tradingsystem.orchestration import cycle
 class FakeAlpacaClient:
     def __init__(self, equity=100_000.0, cash=80_000.0, positions=None, open_orders=None,
                  market_status="open", price=100.0, price_overrides=None,
-                 raise_on_price_for=None, submit_response=None, order_statuses=None):
+                 raise_on_price_for=None, submit_response=None, order_statuses=None,
+                 position_details=None):
         self.equity = equity
         self.cash = cash
         self.positions = positions or {}
@@ -21,6 +22,7 @@ class FakeAlpacaClient:
         self.raise_on_price_for = raise_on_price_for or set()
         self.submit_response = submit_response
         self.order_statuses = order_statuses or {}
+        self.position_details = position_details or []
         self.submit_calls = []
 
     def get_account(self):
@@ -28,6 +30,9 @@ class FakeAlpacaClient:
 
     def get_positions(self):
         return self.positions
+
+    def get_position_details(self):
+        return self.position_details
 
     def get_open_orders(self):
         return self.open_orders
@@ -208,6 +213,63 @@ def test_one_ticker_exception_does_not_stop_the_others(db_session, monkeypatch):
     assert client.submit_calls == [("MSFT", "buy", 100, 100.0)]
     assert db_session.query(Order).count() == 1
     assert any(level == "critical" and "AAPL" in message for level, message in alerts)
+
+
+def test_stop_loss_triggers_full_exit_sell_and_alerts(db_session, monkeypatch):
+    from tradingsystem.execution.alpaca_client import PositionDetail, SubmittedOrder
+    alerts = []
+    monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
+    client = FakeAlpacaClient(
+        market_status="open", equity=100_000.0,
+        position_details=[PositionDetail(ticker="AAPL", qty=50, avg_entry_price=100.0, current_price=90.0)],
+        submit_response=SubmittedOrder(alpaca_order_id="sl1", status="new"),
+    )
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=[])
+
+    assert client.submit_calls == [("AAPL", "sell", 50, 90.0)]
+    order = db_session.query(Order).filter_by(alpaca_order_id="sl1").one()
+    assert order.ticker == "AAPL"
+    run = db_session.query(AgentRun).filter_by(run_type="stop_loss").one()
+    assert run.ticker == "AAPL"
+    decision = db_session.query(Decision).filter_by(agent_run_id=run.id).one()
+    assert decision.rating == "Sell"
+    assert decision.decision == "sell"
+    assert any(level == "critical" and "STOP-LOSS" in message and "AAPL" in message for level, message in alerts)
+
+
+def test_no_stop_loss_when_drawdown_below_threshold(db_session):
+    from tradingsystem.execution.alpaca_client import PositionDetail
+    client = FakeAlpacaClient(
+        market_status="open", equity=100_000.0,
+        position_details=[PositionDetail(ticker="AAPL", qty=50, avg_entry_price=100.0, current_price=95.0)],
+    )
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=[])
+
+    assert client.submit_calls == []
+    assert db_session.query(AgentRun).filter_by(run_type="stop_loss").count() == 0
+
+
+def test_stop_loss_fires_even_when_circuit_breaker_is_tripped(db_session, monkeypatch):
+    from tradingsystem.execution.alpaca_client import PositionDetail, SubmittedOrder
+    alerts = []
+    monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
+    today = datetime.datetime.now(cycle._NY).date()
+    db_session.add(PortfolioSnapshot(snapshot_date=today, equity=100_000.0, cash=80_000.0, positions={}))
+    db_session.flush()
+    client = FakeAlpacaClient(
+        market_status="open", equity=96_000.0,  # 4% drawdown > 3% daily threshold — breaker trips
+        position_details=[PositionDetail(ticker="MSFT", qty=50, avg_entry_price=100.0, current_price=90.0)],
+        submit_response=SubmittedOrder(alpaca_order_id="sl2", status="new"),
+    )
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=WATCHLIST)
+
+    assert client.submit_calls == [("MSFT", "sell", 50, 90.0)]
+    assert db_session.query(CircuitBreakerEvent).count() == 1
+    runs = db_session.query(AgentRun).filter(AgentRun.run_type != "stop_loss").all()
+    assert all(r.outcome == "circuit_breaker_active" for r in runs)
 
 
 def test_run_full_cycle_syncs_open_order_fills_every_run(db_session):
