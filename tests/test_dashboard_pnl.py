@@ -5,7 +5,11 @@ from tradingsystem.db.models import PortfolioSnapshot, RealizedPnl
 NOW = datetime.datetime(2026, 1, 5, 14, 30)
 
 
-def test_pnl_empty_state_does_not_500(client):
+def test_pnl_empty_state_does_not_500(client, db_session):
+    db_session.query(RealizedPnl).delete()
+    db_session.query(PortfolioSnapshot).delete()
+    db_session.flush()
+
     response = client.get("/pnl")
 
     assert response.status_code == 200

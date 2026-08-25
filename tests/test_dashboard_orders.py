@@ -5,7 +5,10 @@ from tradingsystem.db.models import AgentRun, Decision, Fill, Order
 NOW = datetime.datetime(2026, 1, 5, 14, 30)
 
 
-def test_orders_list_empty_state_does_not_500(client):
+def test_orders_list_empty_state_does_not_500(client, db_session):
+    db_session.query(Order).delete()
+    db_session.flush()
+
     response = client.get("/orders")
 
     assert response.status_code == 200

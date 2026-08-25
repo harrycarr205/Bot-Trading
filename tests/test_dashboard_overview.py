@@ -5,7 +5,12 @@ from tradingsystem.db.models import CircuitBreakerEvent, PortfolioSnapshot, Sche
 NOW = datetime.datetime(2026, 1, 5, 14, 30)
 
 
-def test_overview_empty_state_does_not_500(client):
+def test_overview_empty_state_does_not_500(client, db_session):
+    db_session.query(PortfolioSnapshot).delete()
+    db_session.query(SchedulerHeartbeat).delete()
+    db_session.query(CircuitBreakerEvent).delete()
+    db_session.flush()
+
     response = client.get("/")
 
     assert response.status_code == 200
@@ -15,6 +20,11 @@ def test_overview_empty_state_does_not_500(client):
 
 
 def test_overview_shows_snapshot_and_fresh_heartbeat(client, db_session):
+    db_session.query(PortfolioSnapshot).delete()
+    db_session.query(SchedulerHeartbeat).delete()
+    db_session.query(CircuitBreakerEvent).delete()
+    db_session.flush()
+
     db_session.add(PortfolioSnapshot(
         snapshot_date=datetime.date(2026, 8, 24), equity=100_000.0, cash=80_000.0, positions={},
     ))
@@ -33,6 +43,11 @@ def test_overview_shows_snapshot_and_fresh_heartbeat(client, db_session):
 
 
 def test_overview_shows_active_circuit_breaker(client, db_session):
+    db_session.query(PortfolioSnapshot).delete()
+    db_session.query(SchedulerHeartbeat).delete()
+    db_session.query(CircuitBreakerEvent).delete()
+    db_session.flush()
+
     db_session.add(CircuitBreakerEvent(breaker_type="daily", trigger_reason="4% drawdown"))
     db_session.flush()
 
