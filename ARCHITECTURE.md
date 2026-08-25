@@ -30,7 +30,7 @@ validation boundary between judgment and execution:
 ```
 
 Orchestration is a **standalone Python scheduler process** (APScheduler,
-in-process, running as a systemd service) that calls Ollama directly.
+in-process — see §6 for how it actually runs) that calls Ollama directly.
 **Claude Code is a dev-tool only** — it builds and maintains this codebase
 but is never in the runtime path and never bills per trading run. This was
 explicitly confirmed rather than assumed, per the brief's flag.
@@ -39,22 +39,34 @@ explicitly confirmed rather than assumed, per the brief's flag.
 
 ## 2. Data flow (per scheduled run)
 
-Three-stage split, run twice daily (pre-market and midday) per ticker:
+Run twice daily (pre-market and midday). Actual step order, per ticker
+cycle (as implemented, `orchestration/cycle.py`):
 
-1. **Market status check** — always first, before anything else. If market
-   closed/unavailable, log a journal entry and stop.
-2. **Research stage** — TradingAgents runs its full pipeline (fundamentals,
+1. **Pre-flight housekeeping** — every run, independent of market status:
+   record a heartbeat, sync fill status for any still-open orders, ingest
+   any newly-resolved TradingAgents memory-log entries, and ensure today's
+   portfolio snapshot baseline exists.
+2. **Market status check** — if market closed/unavailable, log a journal
+   entry and stop here.
+3. **Stop-loss check** — deterministic, runs before the circuit-breaker
+   gate below: any live position down more than the stop-loss threshold
+   (§4) from its average entry price is force-exited immediately,
+   regardless of circuit-breaker state — a stop-loss is a defensive exit,
+   not new discretionary risk.
+4. **Circuit-breaker gate** — if a daily/weekly breaker is active, log a
+   journal entry and stop here.
+5. **Research stage** — TradingAgents runs its full pipeline (fundamentals,
    sentiment, news, technical analysts → bull/bear researchers → trader →
-   risk team → portfolio manager) via Ollama (Qwen2.5:7b-instruct), 1 debate
-   round. Produces a decision (BUY/SELL/HOLD) + reasoning + full debate
-   transcript. Every structured output is schema-validated; malformed
+   risk team → portfolio manager) via Ollama, 1 debate round. Produces a
+   decision (5-tier rating, collapsed to BUY/SELL/HOLD) + reasoning + full
+   debate transcript. Every structured output is schema-validated; malformed
    output triggers a retry, and persistent failure fails closed (no trade).
-3. **Trade stage** — the decision is handed to the deterministic risk
+6. **Trade stage** — the decision is handed to the deterministic risk
    validation layer (see §4). This layer — not TradingAgents — is the only
    code path allowed to call Alpaca's order endpoint. It independently
    re-derives position size, cash reserve, and exposure; it does not trust
    any risk math the agent claims to have already done.
-4. **Journal stage** — every run, including no-action/HOLD days and days
+7. **Journal stage** — every run, including no-action/HOLD days and days
    where market was closed, writes a journal entry to the second brain.
 
 A heartbeat is emitted independently of trade activity, so a silent crash
@@ -124,20 +136,29 @@ cycle), so watch total cycle time as the list grows.
 
 ## 5. Decision engine configuration
 
-- Model: **Qwen2.5:7b-instruct** via Ollama, same model resident for every
-  agent role (analysts, bull/bear researchers, trader, risk manager) — your
-  8GB VRAM (RTX 3060 Ti) realistically keeps one ~7-8B model resident at a
-  time, so role-specific model swapping was rejected to avoid reload
-  latency and to keep tool-calling reliability validation to one model.
+- Models: **deep-think** (`gpt-oss:120b-cloud`) and **quick-think**
+  (`nemotron-3-super:cloud`) via Ollama Cloud — deep-think for the Research
+  Manager, Trader, Risk Judge, and Portfolio Manager; quick-think for the
+  four analysts. Both `.env`-configurable
+  (`TRADINGAGENTS_DEEP_THINK_MODEL` / `TRADINGAGENTS_QUICK_THINK_MODEL`),
+  independently swappable with no code change. Ollama Cloud is proxied
+  through the same local `ollama serve` daemon using the signed-in
+  account — no separate API key, but `ollama serve` must still be running
+  locally. Originally a single local Qwen2.5:7b-instruct model (GPU-resident,
+  one role-agnostic model to keep tool-calling validation simple); migrated
+  after the local smoke test (§9) showed ~22 min/ticker was impractical for
+  the twice-daily/3-ticker cadence unattended — see
+  `docs/superpowers/specs/2026-08-25-ollama-cloud-model-split-design.md`
+  for the full evaluation.
 - `max_debate_rounds`: 1 (shallow, to validate the full pipeline end-to-end
   first; can be increased once run time and quality are assessed).
 - Analysts: all four (fundamentals, sentiment, news, technical), equally
   weighted — TradingAgents' default full pipeline.
 - Run cadence: **twice daily per ticker**, pre-market and midday.
-- Every structured output from Qwen2.5 is treated as untrusted: schema
-  validated, retried on malformed output, fails closed (no trade) on
-  persistent ambiguity — per the brief's non-negotiable on local
-  tool-calling reliability.
+- Every structured output from the decision engine is treated as untrusted:
+  schema validated, retried on malformed output, fails closed (no trade) on
+  persistent ambiguity — per the brief's non-negotiable on tool-calling
+  reliability, regardless of which model is configured.
 
 ---
 
@@ -146,15 +167,25 @@ cycle), so watch total cycle time as the list grows.
 - Standalone Python process using **APScheduler** (in-process, not OS-level
   cron) — chosen so circuit-breaker state and heartbeat status can be kept
   in memory within one coherent process rather than reconstructed from
-  external state on every cron invocation.
-- Runs as a **systemd service**: `Restart=on-failure`, enabled on boot.
-  Survives machine reboot and Ollama crashes without manual intervention.
-- Runs on **this machine** (the RTX 3060 Ti box), where Ollama is already
-  hosted.
+  external state on every cron invocation. Entry point: `python -m
+  tradingsystem.orchestration.scheduler`.
+- Runs as a **standalone detached process** on this machine (Windows, RTX
+  4060 Ti), started manually and left running unattended — not a systemd
+  service (that assumed Linux; this box runs Windows). No auto-restart on
+  crash or reboot yet — an open gap, not a deliberate choice.
+- A second, independent **heartbeat watchdog** process (`python -m
+  tradingsystem.orchestration.watchdog`) runs alongside the scheduler,
+  checking every ~20 minutes (configurable) whether a cycle fired when the
+  cron schedule says it should have, and alerting via Discord if not —
+  necessary because nothing inside a dead or hung scheduler process can
+  alert on its own failure.
+- Ollama still runs locally (`ollama serve`) as the proxy for Ollama Cloud
+  (§5) — actual inference now happens on Ollama's infrastructure, not this
+  machine's GPU, but the local daemon must still be running and signed in.
 - Kill switch is an independent mechanism — not a flag the agent checks in
-  its own loop — implemented as an external file/systemd-unit check that
-  the validation layer consults before every order, so a stuck/broken agent
-  process can't bypass it.
+  its own loop — implemented as an external file check that the validation
+  layer consults before every order, so a stuck/broken agent process can't
+  bypass it.
 
 ---
 
@@ -170,10 +201,12 @@ cycle), so watch total cycle time as the list grows.
   overview (latest portfolio snapshot, scheduler heartbeat, active circuit
   breakers), decisions/journal (filterable by ticker, includes no-action
   days), decision detail (full ordered debate transcript), orders/fills,
-  and P&L history. No write actions (including circuit-breaker clearing —
-  still a real operational gap, no tooling exists for it yet) and no
+  and P&L history. No write actions from the dashboard itself and no
   authentication, both deliberate given this is a single-operator,
-  localhost-only tool.
+  localhost-only tool. Circuit-breaker clearing has its own separate CLI
+  instead (`python -m tradingsystem.db.clear_breaker`), deliberately kept
+  outside the dashboard so a clear always requires a human-supplied name
+  and review note, never a button click.
 
 ---
 
@@ -210,9 +243,8 @@ cycle), so watch total cycle time as the list grows.
   CPU-only Ollama) stalled 40+ minutes mid-pipeline without finishing, a full
   live `run_research("AAPL", "2026-08-21")` run completed successfully on the
   actual GPU desktop (RTX 4060 Ti, 8GB VRAM — supersedes the RTX 3060 Ti
-  assumed elsewhere in this document; same 8GB VRAM class, so the
-  one-7-8B-model-resident capacity reasoning in §5 still holds) in **22.2
-  minutes**, returning a valid `Underweight`/`sell` decision with full
+  assumed elsewhere in this document) in **22.2 minutes**, returning a
+  valid `Underweight`/`sell` decision with full
   reasoning. `ollama ps` during the run showed the model only 73% GPU / 27%
   CPU resident — TradingAgents' 32k-token context window doesn't fully fit
   alongside the model weights in 8GB, which is the likely reason this figure
@@ -225,16 +257,18 @@ cycle), so watch total cycle time as the list grows.
   that Ollama tool-calling reliability is materially below cloud models; a
   single occurrence in one run, not yet enough data to say how often this
   recurs across many runs.
-- **Local-only Ollama inference — open to revisiting if performance proves
-  limiting.** The non-negotiable above (all runtime LLM inference stays
-  local, no cloud billing/dependency in the trading loop) still holds. The
-  ~22 min/ticker figure and the 27% CPU-offload finding above are the
-  concrete trigger this bullet exists for: if the twice-daily/3-ticker pace
-  proves impractical once the scheduler is actually running unattended,
-  moving some or all inference to a paid, hosted Ollama Cloud endpoint is the
-  option to revisit — explicitly evaluated then, not defaulted into now,
-  since it reverses the local-only principle above and needs its own
-  cost/reliability/data-handling discussion at that point.
+- **Ollama Cloud migration — evaluated and adopted, 2026-08-25.** The
+  original local-only-inference principle above held until a full 3-ticker
+  end-to-end test got killed by an environment timeout roughly 80 minutes
+  in, confirming the ~22 min/ticker local figure was impractical for the
+  twice-daily/3-ticker cadence running unattended. Reversed the local-only
+  principle after explicit evaluation (see
+  `docs/superpowers/specs/2026-08-25-ollama-cloud-model-split-design.md`):
+  decision-engine inference now runs on Ollama Cloud (§5), proxied through
+  the same local `ollama serve` daemon using the signed-in account. Already
+  paid for via an existing subscription, so no new cost; local GPU
+  inference remains available as a fallback by pointing the two `.env`
+  model settings back at local model names, with no code change.
 - Two mid-build discoveries also changed assumptions from the original brief
   (both resolved, see the TradingAgents-integration commit): PyPI's
   `tradingagents` package is **not** the real TauricResearch project (a
