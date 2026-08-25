@@ -62,6 +62,12 @@ class Settings(BaseSettings):
 
     discord_webhook_url: str = ""
 
+    # Watchdog (orchestration/watchdog.py) — a second standalone process that
+    # alerts if the scheduler process dies or hangs, since nothing inside a
+    # dead process can alert on its own death.
+    heartbeat_grace_minutes: int = 30
+    watchdog_check_interval_minutes: int = 20
+
     kill_switch_file: str = str(REPO_ROOT / "KILL_SWITCH")
 
     dashboard_host: str = "127.0.0.1"

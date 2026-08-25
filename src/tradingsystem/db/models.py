@@ -153,3 +153,8 @@ class SchedulerHeartbeat(Base):
     last_seen_at: Mapped[datetime.datetime]
     last_run_type: Mapped[str | None]
     last_ticker: Mapped[str | None]
+    # Dedup marker for orchestration/watchdog.py: holds the last_seen_at value
+    # already alerted about, so a stale heartbeat alerts once per episode
+    # rather than on every watchdog check — same pattern as circuit breaker
+    # trips only alerting once via get_active_breaker_event.
+    last_stale_alert_for: Mapped[datetime.datetime | None]
