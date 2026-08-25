@@ -15,7 +15,7 @@ from fastapi.requests import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import CircuitBreakerEvent, PortfolioSnapshot, SchedulerHeartbeat
+from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, Decision, PortfolioSnapshot, SchedulerHeartbeat
 from tradingsystem.db.session import make_session_factory
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
@@ -74,3 +74,13 @@ def overview(request: Request, db: Session = Depends(get_db)):
             "active_breakers": active_breakers,
         },
     )
+
+
+@app.get("/decisions")
+def decisions_list(request: Request, ticker: str | None = None, db: Session = Depends(get_db)):
+    query = db.query(AgentRun).order_by(AgentRun.started_at.desc())
+    if ticker:
+        query = query.filter(AgentRun.ticker == ticker)
+    runs = query.all()
+    rows = [(run, run.decisions[0] if run.decisions else None) for run in runs]
+    return templates.TemplateResponse(request, "decisions.html", {"runs": rows, "ticker": ticker})
