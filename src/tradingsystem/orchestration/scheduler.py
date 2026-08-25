@@ -13,7 +13,7 @@ import logging
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from tradingsystem.config import Settings
+from tradingsystem.config import REPO_ROOT, Settings
 from tradingsystem.db.session import make_session_factory
 from tradingsystem.execution.alpaca_client import AlpacaClient
 from tradingsystem.orchestration.cycle import run_full_cycle
@@ -51,5 +51,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
 
 
 if __name__ == "__main__":
+    # TradingAgents' optional vendor modules (fred.py, alpha_vantage_common.py)
+    # read API keys via bare os.getenv, bypassing our own Settings entirely —
+    # pydantic-settings loads .env into Settings only, not into os.environ, so
+    # this is required for FRED_API_KEY/ALPHA_VANTAGE_API_KEY in .env to reach
+    # them. Scoped to __main__ so importing this module (e.g. in tests) never
+    # mutates the process environment as a side effect.
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO_ROOT / ".env")
     logging.basicConfig(level=logging.INFO)
     build_scheduler().start()

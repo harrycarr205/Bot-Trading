@@ -49,6 +49,21 @@ class PositionDetail:
     current_price: float
 
 
+def round_to_tick(price: float) -> float:
+    """Round to Alpaca's minimum price increment.
+
+    SEC Rule 612 (the sub-penny rule): $0.01 for prices >= $1, $0.0001 below
+    $1. Alpaca's own last-trade data can report sub-penny prices (some
+    venues print at finer granularity than the tick a retail limit order is
+    allowed to use), so a raw current_price passed straight through as
+    limit_price can get rejected — this is the fix, applied at the actual
+    submission point so every caller is protected regardless of how the
+    price was computed upstream.
+    """
+    decimals = 2 if price >= 1.0 else 4
+    return round(price, decimals)
+
+
 class AlpacaClientProtocol(Protocol):
     def get_account(self) -> AccountSnapshot: ...
     def get_positions(self) -> dict[str, float]: ...
@@ -127,7 +142,7 @@ class AlpacaClient:
             qty=qty,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
-            limit_price=limit_price,
+            limit_price=round_to_tick(limit_price),
         )
         order = self._client.submit_order(request)
         return SubmittedOrder(alpaca_order_id=str(order.id), status=order.status.value)
