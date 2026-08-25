@@ -16,7 +16,7 @@ from fastapi.requests import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, PortfolioSnapshot, SchedulerHeartbeat
+from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, SchedulerHeartbeat
 from tradingsystem.db.session import make_session_factory
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
@@ -109,3 +109,9 @@ def decision_detail(request: Request, agent_run_id: uuid.UUID, db: Session = Dep
     return templates.TemplateResponse(
         request, "decision_detail.html", {"run": run, "decision": decision, "transcripts": rows}
     )
+
+
+@app.get("/orders")
+def orders_list(request: Request, db: Session = Depends(get_db)):
+    orders = db.query(Order).order_by(Order.submitted_at.desc()).all()
+    return templates.TemplateResponse(request, "orders.html", {"orders": orders})
