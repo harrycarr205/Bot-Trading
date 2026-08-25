@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     # /v1) when OLLAMA_BASE_URL is set — confirmed from the installed
     # package's provider table.
     ollama_base_url: str = "http://localhost:11434/v1"
-    tradingagents_model: str = "qwen2.5:7b-instruct"
+    # Deep-think: Research Manager, Trader, Risk Judge, Portfolio Manager.
+    # Quick-think: the four analysts. Independently configurable so a better
+    # model (local or Ollama-Cloud, e.g. a "<name>:cloud" tag) can be swapped
+    # in per role via .env with no code change.
+    tradingagents_deep_think_model: str = "qwen2.5:7b-instruct"
+    tradingagents_quick_think_model: str = "qwen2.5:7b-instruct"
     # ARCHITECTURE.md §5: shallow, single-round debate to validate the
     # pipeline end-to-end first. Not part of risk_config.yaml — that file is
     # specifically the risk *validation* numbers, not decision-engine depth.

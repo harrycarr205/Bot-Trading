@@ -16,8 +16,8 @@ from tradingsystem.config import Settings
 def build_ta_config(settings: Settings) -> dict[str, Any]:
     config = DEFAULT_CONFIG.copy()
     config["llm_provider"] = "ollama"
-    config["deep_think_llm"] = settings.tradingagents_model
-    config["quick_think_llm"] = settings.tradingagents_model
+    config["deep_think_llm"] = settings.tradingagents_deep_think_model
+    config["quick_think_llm"] = settings.tradingagents_quick_think_model
     config["backend_url"] = settings.ollama_base_url
     config["max_debate_rounds"] = settings.tradingagents_max_debate_rounds
     config["max_risk_discuss_rounds"] = settings.tradingagents_max_risk_discuss_rounds
