@@ -16,8 +16,9 @@ from fastapi.requests import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl, SchedulerHeartbeat
+from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
 from tradingsystem.db.session import make_session_factory
+from tradingsystem.orchestration import heartbeat as heartbeat_module
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -54,7 +55,7 @@ def overview(request: Request, db: Session = Depends(get_db)):
         .order_by(PortfolioSnapshot.snapshot_date.desc())
         .first()
     )
-    heartbeat = db.get(SchedulerHeartbeat, "scheduler")
+    heartbeat = heartbeat_module.get_heartbeat(db)
     heartbeat_stale = (
         heartbeat is not None
         and datetime.datetime.utcnow() - heartbeat.last_seen_at > HEARTBEAT_STALE_AFTER
