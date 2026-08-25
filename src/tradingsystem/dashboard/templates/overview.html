@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Overview — Bot-Trading Dashboard{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+
+<div class="card">
+    <h2>Portfolio</h2>
+    {% if snapshot %}
+    <p>As of {{ snapshot.snapshot_date }}: Equity {{ snapshot.equity|money }}, Cash {{ snapshot.cash|money }}</p>
+    {% else %}
+    <p>No portfolio snapshot recorded yet.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Scheduler heartbeat</h2>
+    {% if heartbeat %}
+    <p class="{{ 'stale' if heartbeat_stale else 'fresh' }}">
+        Last seen {{ heartbeat.last_seen_at }} ({{ 'STALE' if heartbeat_stale else 'fresh' }})
+        — run_type={{ heartbeat.last_run_type }} ticker={{ heartbeat.last_ticker or '-' }}
+    </p>
+    {% else %}
+    <p>No heartbeat recorded yet — scheduler has never run.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Circuit breakers</h2>
+    {% if active_breakers %}
+    <ul>
+    {% for b in active_breakers %}
+        <li class="active">{{ b.breaker_type }} — tripped {{ b.tripped_at }}: {{ b.trigger_reason }}</li>
+    {% endfor %}
+    </ul>
+    {% else %}
+    <p class="clear">No active circuit breakers.</p>
+    {% endif %}
+</div>
+{% endblock %}

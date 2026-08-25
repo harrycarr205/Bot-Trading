@@ -8,9 +8,11 @@ writes without leaving residue in the dev database.
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from tradingsystem.db.session import make_engine
+from tradingsystem.dashboard.app import app, get_db
 
 
 @pytest.fixture
@@ -26,3 +28,10 @@ def db_session():
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture
+def client(db_session):
+    app.dependency_overrides[get_db] = lambda: db_session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
