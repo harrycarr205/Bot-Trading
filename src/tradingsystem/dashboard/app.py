@@ -16,7 +16,7 @@ from fastapi.requests import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, SchedulerHeartbeat
+from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl, SchedulerHeartbeat
 from tradingsystem.db.session import make_session_factory
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
@@ -115,3 +115,10 @@ def decision_detail(request: Request, agent_run_id: uuid.UUID, db: Session = Dep
 def orders_list(request: Request, db: Session = Depends(get_db)):
     orders = db.query(Order).order_by(Order.submitted_at.desc()).all()
     return templates.TemplateResponse(request, "orders.html", {"orders": orders})
+
+
+@app.get("/pnl")
+def pnl(request: Request, db: Session = Depends(get_db)):
+    snapshots = db.query(PortfolioSnapshot).order_by(PortfolioSnapshot.snapshot_date.desc()).all()
+    realized = db.query(RealizedPnl).order_by(RealizedPnl.closed_at.desc()).all()
+    return templates.TemplateResponse(request, "pnl.html", {"snapshots": snapshots, "realized": realized})
