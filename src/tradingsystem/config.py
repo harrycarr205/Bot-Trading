@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     alpaca_live_base_url: str = "https://api.alpaca.markets"
 
     database_url: str = "postgresql+psycopg://trading:trading@localhost:5432/trading"
+    # Dedicated database for tests/conftest.py's db_session fixture — kept
+    # separate from database_url so the test suite is never polluted by (or
+    # accidentally pollutes) real data written by a live running scheduler.
+    test_database_url: str = "postgresql+psycopg://trading:trading@localhost:5432/trading_test"
 
     # TradingAgents' Ollama provider uses this URL as-is (no auto-appended
     # /v1) when OLLAMA_BASE_URL is set — confirmed from the installed
