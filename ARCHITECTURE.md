@@ -164,9 +164,16 @@ cycle), so watch total cycle time as the list grows.
 - **Immediate alerts** on: circuit breaker trips, order rejections/API
   errors, scheduler heartbeat failure, and every trade placed (full
   visibility, not just failures).
-- **Simple dashboard** over the second brain is in scope (added during
-  interview, beyond the brief's original "DB queries are enough" framing) —
-  a local web UI over decisions, orders/fills, P&L, and journal entries.
+- **Simple dashboard** over the second brain — built 2026-08-25
+  (`src/tradingsystem/dashboard/`). Read-only, on-demand (`python -m
+  tradingsystem.dashboard`), serves `127.0.0.1:8787` by default. Five views:
+  overview (latest portfolio snapshot, scheduler heartbeat, active circuit
+  breakers), decisions/journal (filterable by ticker, includes no-action
+  days), decision detail (full ordered debate transcript), orders/fills,
+  and P&L history. No write actions (including circuit-breaker clearing —
+  still a real operational gap, no tooling exists for it yet) and no
+  authentication, both deliberate given this is a single-operator,
+  localhost-only tool.
 
 ---
 
