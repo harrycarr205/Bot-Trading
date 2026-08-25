@@ -10,7 +10,7 @@ import datetime
 
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import CircuitBreakerEvent
+from tradingsystem.db.models import CircuitBreakerEvent, Fill, Order
 
 
 def get_active_breaker_event(session: Session, breaker_type: str) -> CircuitBreakerEvent | None:
@@ -42,6 +42,23 @@ def clear_breaker_event(
     event.cleared_at = datetime.datetime.utcnow()
     event.cleared_by = cleared_by
     event.review_note = review_note
+
+
+def get_fills_for_ticker_before(session: Session, ticker: str, before: datetime.datetime) -> list[Fill]:
+    """This ticker's fills strictly before `before`, chronologically ordered.
+
+    Used by execution/realized_pnl.py's compute_realized_pnl to derive the
+    average cost basis for a new sell fill from this system's own fill
+    history, rather than Alpaca's live position data (which is racy to query
+    once a closing sell has already landed).
+    """
+    return (
+        session.query(Fill)
+        .join(Order, Fill.order_id == Order.id)
+        .filter(Order.ticker == ticker, Fill.filled_at < before)
+        .order_by(Fill.filled_at.asc())
+        .all()
+    )
 
 
 def clear_active_breaker(

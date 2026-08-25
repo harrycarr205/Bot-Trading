@@ -15,8 +15,10 @@ import uuid
 from alpaca.common.exceptions import APIError
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import Fill, Order
+from tradingsystem.db.models import Fill, Order, RealizedPnl
+from tradingsystem.db.repositories import get_fills_for_ticker_before
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
+from tradingsystem.execution.realized_pnl import FillRecord, compute_realized_pnl
 from tradingsystem.risk.kill_switch import is_kill_switch_active
 from tradingsystem.risk.validation import (
     OrderProposal,
@@ -129,10 +131,31 @@ def sync_order_fills(session: Session, client: AlpacaClientProtocol, order: Orde
         already_recorded = sum(f.fill_qty for f in order.fills)
         new_qty = status.filled_qty - already_recorded
         if new_qty > 0:
+            fill_price = status.filled_avg_price or 0.0
+
+            realized = None
+            if order.side == "sell":
+                prior_fills = get_fills_for_ticker_before(session, order.ticker, status.filled_at)
+                prior_records = [
+                    FillRecord(
+                        side=f.order.side, price=float(f.fill_price), qty=f.fill_qty,
+                        decision_id=f.order.decision_id, filled_at=f.filled_at,
+                    )
+                    for f in prior_fills
+                ]
+                realized = compute_realized_pnl(prior_records, fill_price, new_qty, order.decision_id)
+
             fill = Fill(
-                fill_price=status.filled_avg_price or 0.0,
+                fill_price=fill_price,
                 fill_qty=new_qty,
                 filled_at=status.filled_at,
             )
             order.fills.append(fill)
+
+            if realized is not None:
+                session.add(RealizedPnl(
+                    ticker=order.ticker, decision_ids=realized.decision_ids,
+                    pnl_amount=realized.pnl_amount, closed_at=status.filled_at,
+                ))
+
             session.flush()

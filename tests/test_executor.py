@@ -4,7 +4,7 @@ import uuid
 import pytest
 from alpaca.common.exceptions import APIError
 
-from tradingsystem.db.models import AgentRun, Decision, Order
+from tradingsystem.db.models import AgentRun, Decision, Fill, Order, RealizedPnl
 from tradingsystem.execution.alpaca_client import AccountSnapshot, OrderStatus, SubmittedOrder
 from tradingsystem.execution.executor import place_order, sync_all_open_orders, sync_order_fills
 from tradingsystem.risk.validation import OrderProposal
@@ -203,6 +203,56 @@ def test_sync_order_fills_persists_fill_and_updates_status(db_session, tmp_path)
     assert len(order.fills) == 1
     assert order.fills[0].fill_qty == 1.0
     assert order.fills[0].fill_price == 99.5
+
+
+def test_sell_fill_computes_and_persists_realized_pnl(db_session):
+    buy_decision_id = make_decision(db_session)
+    buy_order = Order(
+        decision_id=buy_decision_id, ticker="AAPL", side="buy", qty=10, limit_price=100.0,
+        status="filled", alpaca_order_id="buy1", submitted_at=NOW,
+    )
+    db_session.add(buy_order)
+    db_session.flush()
+    db_session.add(Fill(order_id=buy_order.id, fill_price=100.0, fill_qty=10, filled_at=NOW))
+    db_session.flush()
+
+    sell_decision_id = make_decision(db_session)
+    sell_order = Order(
+        decision_id=sell_decision_id, ticker="AAPL", side="sell", qty=10, limit_price=110.0,
+        status="new", alpaca_order_id="sell1", submitted_at=NOW,
+    )
+    db_session.add(sell_order)
+    db_session.flush()
+
+    sell_filled_at = NOW + datetime.timedelta(hours=1)
+    client = FakeAlpacaClient(order_status=OrderStatus(
+        alpaca_order_id="sell1", status="filled", filled_qty=10.0, filled_avg_price=110.0, filled_at=sell_filled_at,
+    ))
+
+    sync_order_fills(db_session, client, sell_order)
+
+    realized = db_session.query(RealizedPnl).filter_by(ticker="AAPL").one()
+    assert realized.pnl_amount == 100.0  # (110 - 100) * 10
+    assert set(realized.decision_ids) == {buy_decision_id, sell_decision_id}
+    assert realized.closed_at == sell_filled_at
+
+
+def test_buy_fill_does_not_create_realized_pnl(db_session):
+    decision_id = make_decision(db_session)
+    buy_order = Order(
+        decision_id=decision_id, ticker="AAPL", side="buy", qty=10, limit_price=100.0,
+        status="new", alpaca_order_id="buy2", submitted_at=NOW,
+    )
+    db_session.add(buy_order)
+    db_session.flush()
+
+    client = FakeAlpacaClient(order_status=OrderStatus(
+        alpaca_order_id="buy2", status="filled", filled_qty=10.0, filled_avg_price=100.0, filled_at=NOW,
+    ))
+
+    sync_order_fills(db_session, client, buy_order)
+
+    assert db_session.query(RealizedPnl).count() == 0
 
 
 def test_sync_all_open_orders_skips_terminal_orders(db_session):
