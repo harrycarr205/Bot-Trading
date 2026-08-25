@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import uuid
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, Decision, PortfolioSnapshot, SchedulerHeartbeat
+from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, PortfolioSnapshot, SchedulerHeartbeat
 from tradingsystem.db.session import make_session_factory
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
@@ -84,3 +85,27 @@ def decisions_list(request: Request, ticker: str | None = None, db: Session = De
     runs = query.all()
     rows = [(run, run.decisions[0] if run.decisions else None) for run in runs]
     return templates.TemplateResponse(request, "decisions.html", {"runs": rows, "ticker": ticker})
+
+
+_ROLE_ORDER = [
+    "market_analyst", "sentiment_analyst", "news_analyst", "fundamentals_analyst",
+    "bull_researcher", "bear_researcher", "research_manager_judge", "trader",
+    "risk_aggressive", "risk_conservative", "risk_neutral", "risk_judge",
+    "investment_plan", "portfolio_manager_final_decision",
+]
+_ROLE_ORDER_INDEX = {role: i for i, role in enumerate(_ROLE_ORDER)}
+
+
+@app.get("/decisions/{agent_run_id}")
+def decision_detail(request: Request, agent_run_id: uuid.UUID, db: Session = Depends(get_db)):
+    run = db.get(AgentRun, agent_run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found")
+    decision = run.decisions[0] if run.decisions else None
+    transcripts = sorted(
+        run.debate_transcripts, key=lambda t: _ROLE_ORDER_INDEX.get(t.role, len(_ROLE_ORDER))
+    )
+    rows = [(t.role, t.content) for t in transcripts]
+    return templates.TemplateResponse(
+        request, "decision_detail.html", {"run": run, "decision": decision, "transcripts": rows}
+    )
