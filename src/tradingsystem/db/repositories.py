@@ -42,3 +42,17 @@ def clear_breaker_event(
     event.cleared_at = datetime.datetime.utcnow()
     event.cleared_by = cleared_by
     event.review_note = review_note
+
+
+def clear_active_breaker(
+    session: Session, breaker_type: str, cleared_by: str, review_note: str
+) -> CircuitBreakerEvent | None:
+    """Find and clear the active event of this type, if any.
+
+    Returns the cleared event, or None if there was nothing active to clear.
+    """
+    event = get_active_breaker_event(session, breaker_type)
+    if event is None:
+        return None
+    clear_breaker_event(session, event, cleared_by, review_note)
+    return event
