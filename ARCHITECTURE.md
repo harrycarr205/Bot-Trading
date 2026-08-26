@@ -106,7 +106,7 @@ This supports both "why did it buy X on date Y" (join `decisions` →
 | Control | Value |
 |---|---|
 | Mode | **Paper trading only**, until explicit written sign-off after evaluation period |
-| Watchlist | AAPL, MSFT, SPY to start (equities/ETFs only, long-only, no options/shorting) — freely editable config, not hardcoded; see note below |
+| Ticker selection | Dynamic per cycle: held positions always reassessed (uncapped) + a configurable number of discovery slots screened from a larger candidate pool (equities/ETFs only, long-only, no options/shorting) — freely editable config, not hardcoded; see note below |
 | Paper balance | $100,000 (Alpaca default) |
 | Max position size | 10% of portfolio per position |
 | Cash reserve | 20% minimum always unallocated |
@@ -121,16 +121,19 @@ This supports both "why did it buy X on date Y" (join `decisions` →
 
 ---
 
-**Watchlist is a config list, not hardcoded.** Nothing in TradingAgents'
-per-ticker pipeline or the risk validation layer's portfolio-%-relative
-checks ties the system to exactly AAPL/MSFT/SPY. Adding or removing a
-ticker is a config file/DB table edit, taking effect on the next scheduled
-run — no code change required. You're responsible for your own judgment
-calls on a new ticker's liquidity/coverage before adding it; the system
-doesn't gate this automatically (chosen over a lightweight run-time-budget
-check, to keep the mechanism simple). Worth remembering: each additional
-ticker adds real local-inference time per run (more Ollama calls per
-cycle), so watch total cycle time as the list grows.
+**Ticker selection is dynamic, not a hardcoded watchlist.** Every cycle,
+any ticker with a currently open position is always reassessed (uncapped),
+plus a configurable number of "discovery" slots (`DISCOVERY_SLOTS_PER_CYCLE`)
+filled from a larger candidate pool via a deterministic momentum +
+relative-volume screen — no LLM cost for the screen itself, only for the
+tickers it actually selects. The candidate pool is
+`config/candidate_universe.yaml`, freely editable, not hardcoded; see
+`docs/superpowers/specs/2026-08-25-ticker-selection-design.md` for the full
+design. You're responsible for your own judgment calls on a new candidate's
+liquidity/coverage before adding it; the system doesn't gate this
+automatically. Worth remembering: each ticker actually selected for a cycle
+adds real local-inference time (more Ollama calls per cycle), so watch total
+cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
 
 ---
 

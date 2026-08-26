@@ -2,7 +2,7 @@
 
 An autonomous **paper-trading** research system. Twice a day it runs a
 multi-agent LLM research pipeline ([TradingAgents](https://github.com/TauricResearch/TradingAgents))
-on a watchlist of tickers, hands each decision to a deterministic (non-LLM)
+on a dynamically selected set of tickers, hands each decision to a deterministic (non-LLM)
 risk-validation layer, and — if the decision survives validation — places a
 limit order through Alpaca's paper-trading API. Every run, decision, order,
 fill, and circuit-breaker event is journaled to a Postgres "second brain,"
@@ -246,6 +246,7 @@ writes to — safe to run anytime, including while the scheduler is live.
 | `TRADINGAGENTS_RUN_MAX_ATTEMPTS` | `2` | Outer retry budget if the whole research call fails. |
 | `TRADINGAGENTS_MEMORY_LOG_PATH` | *(empty = TradingAgents' own default)* | Only set to relocate `trading_memory.md`. |
 | `PRE_MARKET_CRON` / `MIDDAY_CRON` | `35 9 * * mon-fri` / `30 12 * * mon-fri` | Always interpreted in America/New_York regardless of host locale. |
+| `DISCOVERY_SLOTS_PER_CYCLE` | `4` | Number of discovery slots filled from the candidate universe each cycle, on top of always-reassessed held positions — tune based on observed API usage. |
 | `DISCORD_WEBHOOK_URL` | — | Optional but recommended — alerts are just logged if unset. |
 | `HEARTBEAT_GRACE_MINUTES` | `30` | How overdue a cycle must be before the watchdog alerts. |
 | `WATCHDOG_CHECK_INTERVAL_MINUTES` | `20` | How often the watchdog checks. |
