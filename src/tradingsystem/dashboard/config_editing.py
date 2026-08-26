@@ -90,3 +90,45 @@ def write_risk_config(
     with path.open("w") as f:
         _yaml.dump(data, f)
     return changes
+
+
+def append_config_change_log(
+    run_dir: Path, changes: dict[str, tuple[float | int, float | int]], note: str,
+) -> None:
+    run_dir.mkdir(exist_ok=True)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        f'{timestamp} risk_config {field}: {old} -> {new} | note="{note}"'
+        for field, (old, new) in changes.items()
+    ]
+    with (run_dir / "config_changes.log").open("a") as f:
+        for line in lines:
+            f.write(line + "\n")
+
+
+def read_env_value(path: Path, key: str) -> str | None:
+    pattern = re.compile(rf"^{re.escape(key)}=(.*)$")
+    for line in path.read_text().splitlines():
+        match = pattern.match(line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def write_env_values(path: Path, updates: dict[str, str]) -> None:
+    lines = path.read_text().splitlines()
+    remaining = dict(updates)
+    new_lines = []
+    for line in lines:
+        matched_key = None
+        for key in remaining:
+            if line.startswith(f"{key}="):
+                matched_key = key
+                break
+        if matched_key is not None:
+            new_lines.append(f"{matched_key}={remaining.pop(matched_key)}")
+        else:
+            new_lines.append(line)
+    for key, value in remaining.items():
+        new_lines.append(f"{key}={value}")
+    path.write_text("\n".join(new_lines) + "\n")
