@@ -10,7 +10,7 @@ and risk/circuit_breaker.py.
 
 from __future__ import annotations
 
-from tradingsystem.execution.alpaca_client import DailyBars
+from tradingsystem.execution.alpaca_client import AlpacaClientProtocol, DailyBars
 
 
 def compute_momentum_pct(closes: list[float]) -> float:
@@ -56,3 +56,15 @@ def select_tickers_for_cycle(
     """
     discovery = [t for t in ranked_candidates if t not in held_tickers][:discovery_slots]
     return sorted(held_tickers | set(discovery))
+
+
+def build_cycle_ticker_list(
+    alpaca_client: AlpacaClientProtocol,
+    candidate_universe: list[str],
+    discovery_slots: int,
+    lookback_days: int = 21,
+) -> list[str]:
+    held = {p.ticker for p in alpaca_client.get_position_details()}
+    bars = alpaca_client.get_recent_daily_bars(candidate_universe, lookback_days)
+    ranked = rank_candidates(bars)
+    return select_tickers_for_cycle(held, ranked, discovery_slots)

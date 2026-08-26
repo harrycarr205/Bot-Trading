@@ -60,7 +60,7 @@ on its own failure).
 
 ```
 src/tradingsystem/
-  config.py                  Settings (.env) + risk_config.yaml / watchlist.yaml loaders
+  config.py                  Settings (.env) + risk_config.yaml / candidate_universe.yaml loaders
   decision_engine/
     runner.py                Runs TradingAgentsGraph.propagate(), persists decisions + debate transcripts
     ta_config.py              Builds TradingAgents' config dict from our Settings
@@ -84,7 +84,7 @@ src/tradingsystem/
   dashboard/                    Read-only FastAPI + Jinja2 web UI
 config/
   risk_config.yaml              Risk numbers (position size, stop-loss, breakers) — edit freely
-  watchlist.yaml                 Tickers — edit freely, takes effect next cycle
+  candidate_universe.yaml        Discovery-screen candidate pool — edit freely, takes effect next cycle
 tests/                          pytest, runs against a dedicated trading_test database
 docker-compose.yml               Postgres + pgvector
 ```
@@ -274,12 +274,18 @@ required for most fields (the running scheduler re-reads this file each
 cycle). Treated as gospel by the validation layer — it never trusts the
 agent's own risk math.
 
-### `config/watchlist.yaml`
+### `config/candidate_universe.yaml`
 
-The ticker list. Add or remove freely; takes effect next cycle. You're
-responsible for judgment calls on a new ticker's liquidity/coverage — the
-system doesn't gate this automatically. Each additional ticker adds real
-inference time per run, so watch total cycle time as the list grows.
+Every cycle, any ticker with a currently open position is always
+reassessed (uncapped), plus a configurable number of "discovery" slots
+(`DISCOVERY_SLOTS_PER_CYCLE`, default 4) filled from this file's pool via
+a deterministic momentum + relative-volume screen — no LLM cost for the
+screen itself, only for the tickers it actually selects. Add or remove
+candidates freely; takes effect next cycle. You're responsible for
+judgment calls on a candidate's liquidity/coverage — the system doesn't
+gate this automatically. See
+`docs/superpowers/specs/2026-08-25-ticker-selection-design.md` for the
+full design.
 
 ---
 

@@ -12,13 +12,13 @@ import zoneinfo
 
 from sqlalchemy.orm import Session
 
-from tradingsystem.config import RiskConfig, Settings, load_risk_config, load_candidate_universe
+from tradingsystem.config import RiskConfig, Settings, load_candidate_universe, load_risk_config
 from tradingsystem.db.models import AgentRun, Decision, PortfolioSnapshot
 from tradingsystem.db.repositories import get_active_breaker_event, record_breaker_trip
 from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
 from tradingsystem.execution.executor import build_portfolio_state, place_order, sync_all_open_orders
-from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion
+from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion, ticker_selection
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
 from tradingsystem.risk.position_sizing import size_order
 from tradingsystem.risk.stop_loss import is_stop_loss_triggered
@@ -183,10 +183,10 @@ def run_full_cycle(
     settings: Settings | None = None,
     risk_config: RiskConfig | None = None,
     watchlist: list[str] | None = None,
+    candidate_universe: list[str] | None = None,
 ) -> None:
     settings = settings or Settings()
     risk_config = risk_config or load_risk_config()
-    watchlist = watchlist if watchlist is not None else load_candidate_universe().tickers
 
     heartbeat.record_heartbeat(session, run_type)
     session.commit()
@@ -196,6 +196,12 @@ def run_full_cycle(
 
     memory_ingestion.ingest_trading_memory(session, settings)
     session.commit()
+
+    if watchlist is None:
+        universe = candidate_universe if candidate_universe is not None else load_candidate_universe().tickers
+        watchlist = ticker_selection.build_cycle_ticker_list(
+            alpaca_client, universe, settings.discovery_slots_per_cycle,
+        )
 
     ensure_snapshot_baseline(session, alpaca_client)
     session.commit()

@@ -68,3 +68,33 @@ def test_select_tickers_for_cycle_zero_discovery_slots():
     ranked = ["MSFT", "GOOGL"]
     result = select_tickers_for_cycle(held, ranked, discovery_slots=0)
     assert result == ["AAPL"]
+
+
+from tradingsystem.execution.alpaca_client import PositionDetail
+from tradingsystem.orchestration.ticker_selection import build_cycle_ticker_list
+
+
+class FakeAlpacaClientForSelection:
+    def __init__(self, positions=None, bars=None):
+        self.positions = positions or []
+        self.bars = bars or {}
+
+    def get_position_details(self):
+        return self.positions
+
+    def get_recent_daily_bars(self, tickers, lookback_days):
+        return {t: self.bars[t] for t in tickers if t in self.bars}
+
+
+def test_build_cycle_ticker_list_combines_held_and_discovery():
+    client = FakeAlpacaClientForSelection(
+        positions=[PositionDetail(ticker="AAPL", qty=10, avg_entry_price=100.0, current_price=110.0)],
+        bars={
+            "MSFT": DailyBars(ticker="MSFT", closes=[100.0, 120.0], volumes=[100.0, 100.0]),  # strong momentum
+            "NVDA": DailyBars(ticker="NVDA", closes=[100.0, 90.0], volumes=[100.0, 100.0]),   # weak momentum
+        },
+    )
+
+    result = build_cycle_ticker_list(client, ["MSFT", "NVDA"], discovery_slots=1)
+
+    assert result == ["AAPL", "MSFT"]  # AAPL held (uncapped); MSFT is the top-ranked discovery pick

@@ -36,6 +36,9 @@ class FakeAlpacaClient:
     def get_position_details(self):
         return self.position_details
 
+    def get_recent_daily_bars(self, tickers, lookback_days):
+        return {}
+
     def get_open_orders(self):
         return self.open_orders
 
@@ -314,3 +317,31 @@ def test_run_full_cycle_syncs_open_order_fills_every_run(db_session):
     assert order.status == "filled"
     assert len(order.fills) == 1
     assert order.fills[0].fill_qty == 10.0
+
+
+def test_run_full_cycle_uses_dynamic_ticker_list_when_watchlist_not_given(db_session, monkeypatch):
+    from tradingsystem.execution.alpaca_client import DailyBars, PositionDetail
+
+    class DynamicFakeAlpacaClient(FakeAlpacaClient):
+        def get_position_details(self):
+            return [PositionDetail(ticker="AAPL", qty=5, avg_entry_price=100.0, current_price=100.0)]
+
+        def get_recent_daily_bars(self, tickers, lookback_days):
+            return {
+                "MSFT": DailyBars(ticker="MSFT", closes=[100.0, 120.0], volumes=[100.0, 100.0]),
+            }
+
+    ScriptedGraph.calls = [
+        (make_final_state("Hold: no clear edge"), "Hold"),
+        (make_final_state("Hold: no clear edge"), "Hold"),
+    ]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    client = DynamicFakeAlpacaClient(market_status="open")
+
+    cycle.run_full_cycle(
+        db_session, client, "pre_market", risk_config=RISK_CONFIG,
+        candidate_universe=["MSFT"],
+    )
+
+    runs = db_session.query(AgentRun).all()
+    assert {r.ticker for r in runs} == {"AAPL", "MSFT"}  # AAPL held (uncapped) + MSFT discovered
