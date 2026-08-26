@@ -10,7 +10,11 @@ and risk/circuit_breaker.py.
 
 from __future__ import annotations
 
+import logging
+
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol, DailyBars
+
+log = logging.getLogger(__name__)
 
 
 def compute_momentum_pct(closes: list[float]) -> float:
@@ -55,7 +59,11 @@ def select_tickers_for_cycle(
     ranked candidates not already held.
     """
     discovery = [t for t in ranked_candidates if t not in held_tickers][:discovery_slots]
-    return sorted(held_tickers | set(discovery))
+    result = sorted(held_tickers | set(discovery))
+    log.info("cycle ticker list: held=%s discovery=%s", sorted(held_tickers), discovery)
+    if not result:
+        log.warning("cycle ticker list is empty: nothing held and nothing discovered")
+    return result
 
 
 def build_cycle_ticker_list(
