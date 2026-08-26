@@ -15,7 +15,10 @@ def test_build_scheduler_registers_two_cron_jobs():
     scheduler = build_scheduler(settings)
 
     jobs = {job.id: job for job in scheduler.get_jobs()}
-    assert set(jobs) == {"pre_market_cycle", "midday_cycle"}
+    # build_scheduler also registers a "stop_check" job (process_control
+    # cooperative-shutdown polling) — assert the two cron jobs are present
+    # rather than that they're the *only* jobs.
+    assert {"pre_market_cycle", "midday_cycle"} <= set(jobs)
     assert isinstance(jobs["pre_market_cycle"].trigger, CronTrigger)
     assert isinstance(jobs["midday_cycle"].trigger, CronTrigger)
     assert jobs["pre_market_cycle"].args == ("pre_market",)

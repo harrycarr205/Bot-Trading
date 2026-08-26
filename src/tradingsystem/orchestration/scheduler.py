@@ -9,18 +9,22 @@ Entry point: python -m tradingsystem.orchestration.scheduler
 from __future__ import annotations
 
 import logging
+import logging.handlers
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from tradingsystem.config import REPO_ROOT, Settings
 from tradingsystem.db.session import make_session_factory
 from tradingsystem.execution.alpaca_client import AlpacaClient
+from tradingsystem.orchestration import process_control
 from tradingsystem.orchestration.cycle import run_full_cycle
 
 log = logging.getLogger(__name__)
 
 _TIMEZONE = "America/New_York"
+_PROCESS_NAME = "scheduler"
 
 
 def _run(run_type: str) -> None:
@@ -47,6 +51,13 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _run, CronTrigger.from_crontab(settings.midday_cron, timezone=_TIMEZONE),
         args=["midday"], id="midday_cycle",
     )
+
+    def _check_stop_requested() -> None:
+        if process_control.is_stop_requested(_PROCESS_NAME):
+            log.info("stop requested — shutting down scheduler")
+            scheduler.shutdown(wait=False)
+
+    scheduler.add_job(_check_stop_requested, IntervalTrigger(seconds=5), id="stop_check")
     return scheduler
 
 
@@ -60,5 +71,18 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
 
     load_dotenv(REPO_ROOT / ".env")
-    logging.basicConfig(level=logging.INFO)
-    build_scheduler().start()
+
+    process_control.RUN_DIR.mkdir(exist_ok=True)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(logging.StreamHandler())
+    root_logger.addHandler(logging.handlers.RotatingFileHandler(
+        process_control.RUN_DIR / "scheduler.log", maxBytes=5_000_000, backupCount=3,
+    ))
+
+    process_control.write_pidfile(_PROCESS_NAME)
+    try:
+        build_scheduler().start()
+    finally:
+        process_control.remove_pidfile(_PROCESS_NAME)
+        process_control.clear_stop_request(_PROCESS_NAME)

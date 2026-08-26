@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import logging.handlers
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -21,12 +22,13 @@ from sqlalchemy.orm import Session
 
 from tradingsystem.config import Settings
 from tradingsystem.db.session import make_session_factory
-from tradingsystem.orchestration import discord_alerts, heartbeat
+from tradingsystem.orchestration import discord_alerts, heartbeat, process_control
 
 log = logging.getLogger(__name__)
 
 _TIMEZONE = "America/New_York"
 _LOOKBACK = datetime.timedelta(days=8)
+_PROCESS_NAME = "watchdog"
 
 
 def most_recent_fire_time(trigger: CronTrigger, now: datetime.datetime) -> datetime.datetime | None:
@@ -97,9 +99,28 @@ def build_watchdog(settings: Settings | None = None) -> BlockingScheduler:
     scheduler.add_job(
         _run, IntervalTrigger(minutes=settings.watchdog_check_interval_minutes), id="heartbeat_watchdog",
     )
+
+    def _check_stop_requested() -> None:
+        if process_control.is_stop_requested(_PROCESS_NAME):
+            log.info("stop requested — shutting down watchdog")
+            scheduler.shutdown(wait=False)
+
+    scheduler.add_job(_check_stop_requested, IntervalTrigger(seconds=5), id="stop_check")
     return scheduler
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    build_watchdog().start()
+    process_control.RUN_DIR.mkdir(exist_ok=True)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(logging.StreamHandler())
+    root_logger.addHandler(logging.handlers.RotatingFileHandler(
+        process_control.RUN_DIR / "watchdog.log", maxBytes=5_000_000, backupCount=3,
+    ))
+
+    process_control.write_pidfile(_PROCESS_NAME)
+    try:
+        build_watchdog().start()
+    finally:
+        process_control.remove_pidfile(_PROCESS_NAME)
+        process_control.clear_stop_request(_PROCESS_NAME)
