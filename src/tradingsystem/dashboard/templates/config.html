@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Config — Bot-Trading Dashboard{% endblock %}
+{% block content %}
+<h1>Config</h1>
+
+<div class="card">
+    <h2>Candidate Universe</h2>
+    <p>Freely editable — add/remove tickers, takes effect next cycle.</p>
+    <form method="post" action="/config/candidate-universe">
+        <textarea name="tickers" rows="10" cols="20">{{ tickers|join("\n") }}</textarea><br>
+        <button type="submit">Save</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Risk Config</h2>
+    <p>Changing these is a deliberate decision — a justification is required.</p>
+    <form method="post" action="/config/risk-config">
+        <label>Max position % <input type="number" step="0.01" name="max_position_pct" value="{{ risk_config.max_position_pct }}"></label><br>
+        <label>Cash reserve % <input type="number" step="0.01" name="cash_reserve_pct" value="{{ risk_config.cash_reserve_pct }}"></label><br>
+        <label>Stop-loss % <input type="number" step="0.01" name="stop_loss_pct" value="{{ risk_config.stop_loss_pct }}"></label><br>
+        <label>Daily breaker % <input type="number" step="0.01" name="daily_drawdown_breaker_pct" value="{{ risk_config.daily_drawdown_breaker_pct }}"></label><br>
+        <label>Weekly breaker % <input type="number" step="0.01" name="weekly_drawdown_breaker_pct" value="{{ risk_config.weekly_drawdown_breaker_pct }}"></label><br>
+        <label>Stale data max age (min) <input type="number" name="stale_data_max_age_minutes" value="{{ risk_config.stale_data_max_age_minutes }}"></label><br>
+        <label>Justification (required)<br><textarea name="note" rows="3" cols="40" required></textarea></label><br>
+        <button type="submit">Save</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Env Settings</h2>
+    <form method="post" action="/config/env-settings">
+        <label>Discovery slots per cycle <input type="number" name="discovery_slots_per_cycle" value="{{ env_values.discovery_slots_per_cycle }}"></label><br>
+        <label>Watchdog check interval (min) <input type="number" name="watchdog_check_interval_minutes" value="{{ env_values.watchdog_check_interval_minutes }}"></label><br>
+        <label>Pre-market cron <input type="text" name="pre_market_cron" value="{{ env_values.pre_market_cron }}"></label><br>
+        <label>Midday cron <input type="text" name="midday_cron" value="{{ env_values.midday_cron }}"></label><br>
+        <label>Deep-think model <input type="text" name="tradingagents_deep_think_model" value="{{ env_values.tradingagents_deep_think_model }}"></label><br>
+        <label>Quick-think model <input type="text" name="tradingagents_quick_think_model" value="{{ env_values.tradingagents_quick_think_model }}"></label><br>
+        <button type="submit">Save</button>
+    </form>
+</div>
+{% endblock %}

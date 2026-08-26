@@ -19,11 +19,14 @@ import time
 import urllib.parse
 import uuid
 
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from tradingsystem.config import REPO_ROOT
+from tradingsystem.dashboard import config_editing
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
 from tradingsystem.db.session import make_session_factory
 from tradingsystem.orchestration import heartbeat as heartbeat_module
@@ -31,6 +34,15 @@ from tradingsystem.orchestration import process_control
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+_RISK_CONFIG_PATH = REPO_ROOT / "config" / "risk_config.yaml"
+_CANDIDATE_UNIVERSE_PATH = REPO_ROOT / "config" / "candidate_universe.yaml"
+_ENV_PATH = REPO_ROOT / ".env"
+_ENV_FIELDS = (
+    "discovery_slots_per_cycle", "watchdog_check_interval_minutes",
+    "pre_market_cron", "midday_cron",
+    "tradingagents_deep_think_model", "tradingagents_quick_think_model",
+)
 
 
 def _money(value) -> str:
@@ -132,6 +144,23 @@ def pnl(request: Request, db: Session = Depends(get_db)):
     snapshots = db.query(PortfolioSnapshot).order_by(PortfolioSnapshot.snapshot_date.desc()).all()
     realized = db.query(RealizedPnl).order_by(RealizedPnl.closed_at.desc()).all()
     return templates.TemplateResponse(request, "pnl.html", {"snapshots": snapshots, "realized": realized})
+
+
+@app.get("/config")
+def config_page(request: Request):
+    env_values = {
+        field: config_editing.read_env_value(_ENV_PATH, field.upper())
+        for field in _ENV_FIELDS
+    }
+    return templates.TemplateResponse(
+        request,
+        "config.html",
+        {
+            "tickers": config_editing.read_candidate_universe_tickers(_CANDIDATE_UNIVERSE_PATH),
+            "risk_config": config_editing.read_risk_config_values(_RISK_CONFIG_PATH),
+            "env_values": env_values,
+        },
+    )
 
 
 _STOP_POLL_INTERVAL_SECONDS = 2
