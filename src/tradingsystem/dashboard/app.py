@@ -20,8 +20,9 @@ import urllib.parse
 import uuid
 
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Form, HTTPException
 from fastapi.requests import Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -202,6 +203,83 @@ def _require_same_origin(request: Request) -> None:
     origin_host = urllib.parse.urlsplit(origin).hostname
     if origin_host not in _ALLOWED_ORIGIN_HOSTS:
         raise HTTPException(status_code=403, detail="Cross-origin request rejected")
+
+
+@app.post("/config/candidate-universe")
+def post_candidate_universe(tickers: str = Form(...), _: None = Depends(_require_same_origin)):
+    ticker_list = [line.strip() for line in tickers.splitlines() if line.strip()]
+    try:
+        config_editing.write_candidate_universe(_CANDIDATE_UNIVERSE_PATH, ticker_list)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return RedirectResponse("/config", status_code=303)
+
+
+@app.post("/config/risk-config")
+def post_risk_config(
+    max_position_pct: float = Form(...),
+    cash_reserve_pct: float = Form(...),
+    stop_loss_pct: float = Form(...),
+    daily_drawdown_breaker_pct: float = Form(...),
+    weekly_drawdown_breaker_pct: float = Form(...),
+    stale_data_max_age_minutes: int = Form(...),
+    note: str = Form(...),
+    _: None = Depends(_require_same_origin),
+):
+    note = note.strip()
+    if not note:
+        raise HTTPException(status_code=422, detail="justification is required")
+    if len(note) > 2000:
+        raise HTTPException(status_code=422, detail="justification must be 2000 characters or fewer")
+
+    updates = {
+        "max_position_pct": max_position_pct,
+        "cash_reserve_pct": cash_reserve_pct,
+        "stop_loss_pct": stop_loss_pct,
+        "daily_drawdown_breaker_pct": daily_drawdown_breaker_pct,
+        "weekly_drawdown_breaker_pct": weekly_drawdown_breaker_pct,
+        "stale_data_max_age_minutes": stale_data_max_age_minutes,
+    }
+    try:
+        changes = config_editing.write_risk_config(_RISK_CONFIG_PATH, updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if changes:
+        config_editing.append_config_change_log(process_control.RUN_DIR, changes, note)
+    return RedirectResponse("/config", status_code=303)
+
+
+@app.post("/config/env-settings")
+def post_env_settings(
+    discovery_slots_per_cycle: int = Form(...),
+    watchdog_check_interval_minutes: int = Form(...),
+    pre_market_cron: str = Form(...),
+    midday_cron: str = Form(...),
+    tradingagents_deep_think_model: str = Form(...),
+    tradingagents_quick_think_model: str = Form(...),
+    _: None = Depends(_require_same_origin),
+):
+    if discovery_slots_per_cycle < 0:
+        raise HTTPException(status_code=422, detail="discovery_slots_per_cycle must be >= 0")
+    if watchdog_check_interval_minutes <= 0:
+        raise HTTPException(status_code=422, detail="watchdog_check_interval_minutes must be > 0")
+    for cron_value, field in ((pre_market_cron, "pre_market_cron"), (midday_cron, "midday_cron")):
+        try:
+            CronTrigger.from_crontab(cron_value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"invalid {field}: {exc}") from exc
+    if not tradingagents_deep_think_model.strip() or not tradingagents_quick_think_model.strip():
+        raise HTTPException(status_code=422, detail="model names must not be empty")
+
+    config_editing.write_env_values(_ENV_PATH, {
+        "DISCOVERY_SLOTS_PER_CYCLE": str(discovery_slots_per_cycle),
+        "WATCHDOG_CHECK_INTERVAL_MINUTES": str(watchdog_check_interval_minutes),
+        "PRE_MARKET_CRON": pre_market_cron,
+        "MIDDAY_CRON": midday_cron,
+        "TRADINGAGENTS_DEEP_THINK_MODEL": tradingagents_deep_think_model,
+        "TRADINGAGENTS_QUICK_THINK_MODEL": tradingagents_quick_think_model,
+    })
+    return RedirectResponse("/config", status_code=303)
 
 
 @app.get("/control")
