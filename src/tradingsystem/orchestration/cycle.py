@@ -184,6 +184,7 @@ def run_full_cycle(
     risk_config: RiskConfig | None = None,
     watchlist: list[str] | None = None,
     candidate_universe: list[str] | None = None,
+    record_heartbeat: bool = True,
 ) -> None:
     """Run one full scheduled cycle — ARCHITECTURE.md §2/§6.
 
@@ -195,8 +196,9 @@ def run_full_cycle(
     settings = settings or Settings()
     risk_config = risk_config or load_risk_config()
 
-    heartbeat.record_heartbeat(session, run_type)
-    session.commit()
+    if record_heartbeat:
+        heartbeat.record_heartbeat(session, run_type)
+        session.commit()
 
     sync_all_open_orders(session, alpaca_client)
     session.commit()
@@ -242,8 +244,9 @@ def run_full_cycle(
                 session, ticker, trade_date=_ny_today().isoformat(),
                 market_status=market_status, run_type=run_type, settings=settings,
             )
-            heartbeat.record_heartbeat(session, run_type, ticker=ticker)
-            session.commit()
+            if record_heartbeat:
+                heartbeat.record_heartbeat(session, run_type, ticker=ticker)
+                session.commit()
 
             if not result.ok or result.decision == "hold":
                 continue
@@ -282,5 +285,6 @@ def run_full_cycle(
             session.rollback()
             continue
 
-    heartbeat.record_heartbeat(session, run_type)
-    session.commit()
+    if record_heartbeat:
+        heartbeat.record_heartbeat(session, run_type)
+        session.commit()

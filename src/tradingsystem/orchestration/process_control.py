@@ -51,11 +51,16 @@ class ProcessStatus:
 def get_process_status(name: str) -> ProcessStatus:
     """Reads the lockfile and verifies the PID is genuinely alive — a
     crashed process that didn't clean up its own lockfile reports as
-    not-alive, not falsely "running"."""
+    not-alive, not falsely "running". A corrupted or empty pidfile is
+    treated the same way rather than raising, so a garbled file can never
+    take down the dashboard's /control page."""
     path = _pidfile(name)
     if not path.exists():
         return ProcessStatus(name=name, pid=None, alive=False)
-    pid = int(path.read_text().strip())
+    try:
+        pid = int(path.read_text().strip())
+    except ValueError:
+        return ProcessStatus(name=name, pid=None, alive=False)
     alive = psutil.pid_exists(pid)
     return ProcessStatus(name=name, pid=pid, alive=alive)
 

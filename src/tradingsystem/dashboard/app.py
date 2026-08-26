@@ -1,8 +1,13 @@
-"""FastAPI dashboard app — read-only web UI over the second-brain database.
-
-ARCHITECTURE.md §7. No write actions, localhost-only, on-demand (python -m
-tradingsystem.dashboard). Each route opens its own short-lived session via
-get_db and closes it before returning — no session shared across requests.
+"""FastAPI dashboard app over the second-brain database — mostly read-only,
+plus a small process-control surface (ARCHITECTURE.md §7): start/stop the
+scheduler/watchdog, trigger an off-cycle run, and view their logs. Every
+write route is guarded by _require_same_origin (a same-origin/CSRF check)
+and, for start, an in-process lock serializing the check-then-spawn
+sequence. Circuit-breaker clearing and the kill switch remain CLI-only —
+deliberately excluded, see ARCHITECTURE.md §7. localhost-only, no
+authentication (single-operator tool). Each route opens its own
+short-lived session via get_db and closes it before returning — no
+session shared across requests.
 """
 
 from __future__ import annotations
@@ -11,6 +16,7 @@ import datetime
 import pathlib
 import threading
 import time
+import urllib.parse
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -147,21 +153,25 @@ def _tail_log(name: str, lines: int = 200) -> str | None:
     return "\n".join(log_path.read_text().splitlines()[-lines:])
 
 
+# This dashboard is documented and designed as localhost-only (Settings.dashboard_host
+# defaults to "127.0.0.1") — pinned here rather than derived from the request's own Host
+# header, which uvicorn does not validate and a DNS-rebinding attacker could spoof.
+_ALLOWED_ORIGIN_HOSTS = {"127.0.0.1", "localhost"}
+
+
 def _require_same_origin(request: Request) -> None:
     """Rejects cross-origin POSTs to the write routes (CSRF guard).
 
     Same-origin requests either omit the Origin header (some browsers omit
-    it for same-site form navigations) or send one matching this server's
-    own scheme+host+port; a cross-origin drive-by form POST sends a
-    mismatched Origin, which we reject with 403.
+    it for same-site form navigations) or send one whose host is in
+    _ALLOWED_ORIGIN_HOSTS; a cross-origin drive-by form POST sends some
+    other Origin, which we reject with 403.
     """
     origin = request.headers.get("origin")
     if origin is None:
         return
-    hostname = request.url.hostname
-    port = request.url.port
-    expected = f"{request.url.scheme}://{hostname}:{port}" if port else f"{request.url.scheme}://{hostname}"
-    if origin != expected:
+    origin_host = urllib.parse.urlsplit(origin).hostname
+    if origin_host not in _ALLOWED_ORIGIN_HOSTS:
         raise HTTPException(status_code=403, detail="Cross-origin request rejected")
 
 
@@ -175,8 +185,7 @@ def control(request: Request):
             "watchdog_status": process_control.get_process_status("watchdog"),
             "scheduler_log": _tail_log("scheduler"),
             "watchdog_log": _tail_log("watchdog"),
-            "scheduler_stop_forced": False,
-            "watchdog_stop_forced": False,
+            "run_once_log": _tail_log("run_once"),
         },
     )
 
@@ -190,6 +199,7 @@ def start_process(name: str, _: None = Depends(_require_same_origin)):
         if process_control.get_process_status(name).alive:
             raise HTTPException(status_code=409, detail=f"{name} is already running")
 
+        process_control.clear_stop_request(name)
         process_control.spawn_detached(name)
         for _ in range(_START_POLL_ATTEMPTS):
             time.sleep(_START_POLL_INTERVAL_SECONDS)
@@ -216,15 +226,36 @@ def stop_process(name: str, _: None = Depends(_require_same_origin)):
         if not process_control.get_process_status(name).alive:
             return {"stopped": True, "forced": False}
 
-    # Re-check right before killing rather than trusting the PID captured
-    # up to 60s ago — narrows (does not eliminate) the window in which a
-    # since-exited process's PID could have been reassigned by the OS.
-    final_status = process_control.get_process_status(name)
-    if final_status.alive:
-        process_control.force_kill(final_status.pid)
-        process_control.remove_pidfile(name)
-        return {"stopped": True, "forced": True}
-    return {"stopped": True, "forced": False}
+    return {
+        "stopped": False,
+        "forced": False,
+        "note": (
+            f"did not stop within {_STOP_TIMEOUT_SECONDS}s — it may still be finishing an "
+            "in-flight research cycle. Use Force Stop only if you're sure it's safe to kill "
+            "(a forced kill mid-order-submission can leave an order live at the broker with "
+            "no local record)."
+        ),
+    }
+
+
+@app.post("/control/{name}/force-stop")
+def force_stop_process(name: str, _: None = Depends(_require_same_origin)):
+    """Deliberate, separate action from /stop — never triggered automatically.
+    A graceful stop can time out while a research cycle is still in flight
+    (measured ~22 min/ticker); force-killing then can orphan an order already
+    submitted to Alpaca but not yet journaled, so this is never automatic."""
+    if name not in ("scheduler", "watchdog"):
+        raise HTTPException(status_code=404, detail="Unknown process")
+
+    status = process_control.get_process_status(name)
+    if not status.alive:
+        process_control.clear_stop_request(name)
+        return {"stopped": True, "forced": False, "note": "was not running"}
+
+    process_control.force_kill(status.pid)
+    process_control.remove_pidfile(name)
+    process_control.clear_stop_request(name)
+    return {"stopped": True, "forced": True}
 
 
 @app.post("/control/run-now")

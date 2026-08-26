@@ -170,3 +170,107 @@ def test_control_page_handles_missing_log_files_gracefully(client, tmp_path, mon
 
     assert response.status_code == 200
     assert "no log yet" in response.text.lower()
+
+
+def test_stop_scheduler_reports_still_running_after_timeout_without_force_killing(client, monkeypatch):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=555, alive=True),  # never goes not-alive
+    )
+    monkeypatch.setattr(process_control, "request_stop", lambda name: None)
+    force_kill_calls = []
+    monkeypatch.setattr(process_control, "force_kill", lambda pid: force_kill_calls.append(pid))
+    import tradingsystem.dashboard.app as app_module
+    monkeypatch.setattr(app_module, "_STOP_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(app_module, "_STOP_POLL_INTERVAL_SECONDS", 0.1)
+
+    response = client.post("/control/scheduler/stop")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stopped"] is False
+    assert force_kill_calls == []  # never force-killed automatically
+
+
+def test_force_stop_scheduler_kills_and_clears_stop_request(client, monkeypatch):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=555, alive=True),
+    )
+    force_kill_calls = []
+    monkeypatch.setattr(process_control, "force_kill", lambda pid: force_kill_calls.append(pid))
+    remove_calls = []
+    monkeypatch.setattr(process_control, "remove_pidfile", lambda name: remove_calls.append(name))
+    clear_calls = []
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: clear_calls.append(name))
+
+    response = client.post("/control/scheduler/force-stop")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {"stopped": True, "forced": True}
+    assert force_kill_calls == [555]
+    assert remove_calls == ["scheduler"]
+    assert clear_calls == ["scheduler"]
+
+
+def test_force_stop_when_not_alive_just_clears_stop_request(client, monkeypatch):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=None, alive=False),
+    )
+    force_kill_calls = []
+    monkeypatch.setattr(process_control, "force_kill", lambda pid: force_kill_calls.append(pid))
+    clear_calls = []
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: clear_calls.append(name))
+
+    response = client.post("/control/scheduler/force-stop")
+
+    assert response.status_code == 200
+    assert response.json() == {"stopped": True, "forced": False, "note": "was not running"}
+    assert force_kill_calls == []
+    assert clear_calls == ["scheduler"]
+
+
+def test_force_stop_rejects_mismatched_origin(client, monkeypatch):
+    force_kill_calls = []
+    monkeypatch.setattr(process_control, "force_kill", lambda pid: force_kill_calls.append(pid))
+
+    response = client.post("/control/scheduler/force-stop", headers={"origin": "http://evil.example"})
+
+    assert response.status_code == 403
+    assert force_kill_calls == []
+
+
+def test_force_stop_unknown_process_name_404s(client):
+    response = client.post("/control/nope/force-stop")
+
+    assert response.status_code == 404
+
+
+def test_start_scheduler_clears_any_stale_stop_request_before_spawning(client, monkeypatch):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=None, alive=False),
+    )
+    monkeypatch.setattr(process_control, "spawn_detached", lambda module: -1)
+    clear_calls = []
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: clear_calls.append(name))
+
+    client.post("/control/scheduler/start")
+
+    assert clear_calls == ["scheduler"]
+
+
+def test_control_page_shows_run_once_log(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(process_control, "RUN_DIR", tmp_path)
+    (tmp_path / "run_once.log").write_text("2026-08-26 09:35:00 INFO run started\n")
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=None, alive=False),
+    )
+
+    response = client.get("/control")
+
+    assert response.status_code == 200
+    assert "run started" in response.text

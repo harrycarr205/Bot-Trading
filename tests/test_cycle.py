@@ -388,3 +388,15 @@ def test_stop_requested_before_loop_skips_all_tickers(db_session, monkeypatch):
     cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL", "MSFT"])
 
     assert db_session.query(AgentRun).filter(AgentRun.run_type == "pre_market").count() == 0
+
+
+def test_record_heartbeat_false_skips_all_heartbeat_writes(db_session):
+    from tradingsystem.orchestration import heartbeat
+    client = FakeAlpacaClient(market_status="closed")
+
+    cycle.run_full_cycle(
+        db_session, client, "manual", risk_config=RISK_CONFIG,
+        watchlist=WATCHLIST, record_heartbeat=False,
+    )
+
+    assert heartbeat.get_heartbeat(db_session) is None

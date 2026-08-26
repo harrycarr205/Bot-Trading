@@ -181,12 +181,22 @@ heartbeat, active breakers), decisions/journal, decision detail (full
 debate transcript), orders/fills, P&L, and control (start/stop the
 scheduler and watchdog, trigger an off-cycle run). Process control is the
 dashboard's only write capability — starting/stopping those two processes
-and kicking off an off-cycle cycle. There's still no authentication,
-deliberate for this single-operator, localhost-only tool, but note it now
-also means an unauthenticated local client can start/stop the live
-trading process, not just view data. Start the dashboard whenever you
-want to look or manage the processes, stop it whenever you're done; the
-scheduler and watchdog keep running independently either way.
+and kicking off an off-cycle cycle. Every write route is protected by a
+same-origin check (CSRF guard) — not full authentication, appropriate for
+this single-operator, localhost-only tool, but note it still means an
+unauthenticated local client can start/stop the live trading process, not
+just view data. Start the dashboard whenever you want to look or manage
+the processes, stop it whenever you're done; the scheduler and watchdog
+keep running independently either way.
+
+Stopping honors an in-flight research cycle (finishes the current ticker,
+declines the next); a stop that doesn't complete within 60s reports
+"still running" rather than auto-killing — an explicit separate Force Stop
+action is required to kill immediately, because a forced kill mid-order
+can orphan a live order at the broker with no local record.
+`run/scheduler.log`, `run/watchdog.log`, and `run/run_once.log` are the
+three log files under the gitignored `run/` directory, viewable on the
+`/control` page.
 
 ### Clearing a tripped circuit breaker
 

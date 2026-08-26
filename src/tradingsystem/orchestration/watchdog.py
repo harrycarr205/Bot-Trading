@@ -113,10 +113,15 @@ if __name__ == "__main__":
     process_control.RUN_DIR.mkdir(exist_ok=True)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(logging.StreamHandler())
-    root_logger.addHandler(logging.handlers.RotatingFileHandler(
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+    file_handler = logging.handlers.RotatingFileHandler(
         process_control.RUN_DIR / "watchdog.log", maxBytes=5_000_000, backupCount=3,
-    ))
+    )
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
 
     process_control.write_pidfile(_PROCESS_NAME)
     try:

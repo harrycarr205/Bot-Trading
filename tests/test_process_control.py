@@ -65,3 +65,23 @@ def test_clear_stop_request_missing_file_does_not_raise(tmp_path, monkeypatch):
     monkeypatch.setattr(process_control, "RUN_DIR", tmp_path)
 
     process_control.clear_stop_request("scheduler")  # never requested
+
+
+def test_get_process_status_corrupted_pidfile_reports_not_alive(tmp_path, monkeypatch):
+    monkeypatch.setattr(process_control, "RUN_DIR", tmp_path)
+    (tmp_path / "scheduler.pid").write_text("not-a-pid")
+
+    status = process_control.get_process_status("scheduler")
+
+    assert status.pid is None
+    assert status.alive is False
+
+
+def test_get_process_status_empty_pidfile_reports_not_alive(tmp_path, monkeypatch):
+    monkeypatch.setattr(process_control, "RUN_DIR", tmp_path)
+    (tmp_path / "scheduler.pid").write_text("")
+
+    status = process_control.get_process_status("scheduler")
+
+    assert status.pid is None
+    assert status.alive is False

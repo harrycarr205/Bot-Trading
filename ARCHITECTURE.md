@@ -212,12 +212,21 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   outside the dashboard. Circuit-breaker clearing has its own separate CLI
   instead (`python -m tradingsystem.db.clear_breaker`), deliberately kept
   outside the dashboard so a clear always requires a human-supplied name
-  and review note, never a button click. The dashboard still has no
-  authentication, on the same single-operator, localhost-only reasoning as
-  before — but that decision now carries more weight than when the
-  dashboard was purely read-only, since an unauthenticated client on the
-  machine can now start/stop the live trading process. Flagged as a known
-  trade-off, not resolved by this plan.
+  and review note, never a button click. Every write route is protected by
+  a same-origin check (CSRF guard) — not full authentication; the
+  dashboard still has no authentication, on the same single-operator,
+  localhost-only reasoning as before — but that decision now carries more
+  weight than when the dashboard was purely read-only, since an
+  unauthenticated client on the machine can now start/stop the live
+  trading process. Flagged as a known trade-off, not resolved by this
+  plan. Stopping honors an in-flight research cycle (finishes the current
+  ticker, declines the next); a stop that doesn't complete within 60s
+  reports "still running" rather than auto-killing — an explicit separate
+  Force Stop action is required to kill immediately, because a forced kill
+  mid-order-submission can orphan a live order at the broker with no local
+  record. `run/scheduler.log`, `run/watchdog.log`, and `run/run_once.log`
+  are the three log files under the gitignored `run/` directory, viewable
+  on the `/control` page.
 
 ---
 
