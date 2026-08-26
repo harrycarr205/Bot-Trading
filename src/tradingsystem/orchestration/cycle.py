@@ -185,6 +185,13 @@ def run_full_cycle(
     watchlist: list[str] | None = None,
     candidate_universe: list[str] | None = None,
 ) -> None:
+    """Run one full scheduled cycle — ARCHITECTURE.md §2/§6.
+
+    `watchlist`, if given, bypasses dynamic ticker selection entirely (used
+    by tests to pin an exact ticker list). `candidate_universe`, if given,
+    only overrides which pool the discovery screen draws candidates from,
+    and has no effect if `watchlist` is also given.
+    """
     settings = settings or Settings()
     risk_config = risk_config or load_risk_config()
 
@@ -199,9 +206,16 @@ def run_full_cycle(
 
     if watchlist is None:
         universe = candidate_universe if candidate_universe is not None else load_candidate_universe().tickers
-        watchlist = ticker_selection.build_cycle_ticker_list(
-            alpaca_client, universe, settings.discovery_slots_per_cycle,
-        )
+        try:
+            watchlist = ticker_selection.build_cycle_ticker_list(
+                alpaca_client, universe, settings.discovery_slots_per_cycle,
+            )
+        except Exception as exc:  # noqa: BLE001 - never let screening block the stop-loss path below
+            log.critical("ticker screening failed, falling back to held positions only: %s", exc)
+            discord_alerts.send_alert(
+                settings, f"Ticker screening failed, held positions only: {exc}", level="warning",
+            )
+            watchlist = sorted({p.ticker for p in alpaca_client.get_position_details()})
 
     ensure_snapshot_baseline(session, alpaca_client)
     session.commit()

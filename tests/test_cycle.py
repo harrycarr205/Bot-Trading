@@ -319,6 +319,39 @@ def test_run_full_cycle_syncs_open_order_fills_every_run(db_session):
     assert order.fills[0].fill_qty == 10.0
 
 
+def test_ticker_screening_failure_falls_back_to_held_positions_and_still_runs_stop_loss(db_session, monkeypatch):
+    from tradingsystem.execution.alpaca_client import PositionDetail, SubmittedOrder
+
+    class ScreeningFailsAlpacaClient(FakeAlpacaClient):
+        def get_recent_daily_bars(self, tickers, lookback_days):
+            raise RuntimeError("simulated data-API outage")
+
+    # The fallback watchlist is the held position (AAPL), which still goes
+    # through the normal research loop after the stop-loss check below sells
+    # it out — script the graph so that doesn't hit a real Ollama call.
+    ScriptedGraph.calls = [(make_final_state("Hold: no clear edge"), "Hold")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    alerts = []
+    monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
+    client = ScreeningFailsAlpacaClient(
+        market_status="open", equity=100_000.0,
+        position_details=[PositionDetail(ticker="AAPL", qty=50, avg_entry_price=100.0, current_price=90.0)],
+        submit_response=SubmittedOrder(alpaca_order_id="sl3", status="new"),
+    )
+
+    # No watchlist given, so run_full_cycle must attempt dynamic selection,
+    # hit the simulated screening failure, and fall back rather than
+    # propagating the exception (which would skip check_and_execute_stop_losses
+    # below and leave the held AAPL position unprotected this cycle).
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, candidate_universe=["MSFT"])
+
+    assert any(level == "warning" and "screening failed" in message for level, message in alerts)
+    # Stop-loss protection for the held position must still have run.
+    assert client.submit_calls == [("AAPL", "sell", 50, 90.0)]
+    order = db_session.query(Order).filter_by(alpaca_order_id="sl3").one()
+    assert order.ticker == "AAPL"
+
+
 def test_run_full_cycle_uses_dynamic_ticker_list_when_watchlist_not_given(db_session, monkeypatch):
     from tradingsystem.execution.alpaca_client import DailyBars, PositionDetail
 
