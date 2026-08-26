@@ -1,0 +1,60 @@
+# The pool orchestration/ticker_selection.py's discovery screen draws
+# candidates from. Freely editable — add/remove tickers here, takes effect
+# next cycle. No code change required. You're responsible for judgment
+# calls on a ticker's liquidity/coverage; the system doesn't gate this
+# automatically. This does NOT limit which tickers get analyzed: any
+# currently-held position is always reassessed regardless of whether it's
+# still listed here (see the design spec).
+tickers:
+  # Tech
+  - AAPL
+  - MSFT
+  - NVDA
+  - GOOGL
+  - META
+  - CRM
+  # Healthcare
+  - UNH
+  - JNJ
+  - LLY
+  - ABBV
+  # Financials
+  - JPM
+  - BAC
+  - GS
+  - V
+  # Consumer discretionary
+  - AMZN
+  - HD
+  - NKE
+  - MCD
+  # Consumer staples
+  - PG
+  - KO
+  - WMT
+  - COST
+  # Energy
+  - XOM
+  - CVX
+  # Industrials
+  - CAT
+  - BA
+  - HON
+  # Communication services
+  - NFLX
+  - DIS
+  # Utilities
+  - NEE
+  - DUK
+  # Materials
+  - LIN
+  # Real estate
+  - PLD
+  # Broad-market index ETFs
+  - SPY   # S&P 500
+  - QQQ   # Nasdaq-100
+  - DIA   # Dow Jones Industrial Average
+  - IWM   # Russell 2000 (small-cap)
+  - VTI   # total US stock market
+  - VXUS  # total international (ex-US)
+  - VT    # total world stock market

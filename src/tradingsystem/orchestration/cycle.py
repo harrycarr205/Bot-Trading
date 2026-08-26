@@ -12,7 +12,7 @@ import zoneinfo
 
 from sqlalchemy.orm import Session
 
-from tradingsystem.config import RiskConfig, Settings, load_risk_config, load_watchlist
+from tradingsystem.config import RiskConfig, Settings, load_risk_config, load_candidate_universe
 from tradingsystem.db.models import AgentRun, Decision, PortfolioSnapshot
 from tradingsystem.db.repositories import get_active_breaker_event, record_breaker_trip
 from tradingsystem.decision_engine.runner import run_research
@@ -186,7 +186,7 @@ def run_full_cycle(
 ) -> None:
     settings = settings or Settings()
     risk_config = risk_config or load_risk_config()
-    watchlist = watchlist if watchlist is not None else load_watchlist().tickers
+    watchlist = watchlist if watchlist is not None else load_candidate_universe().tickers
 
     heartbeat.record_heartbeat(session, run_type)
     session.commit()

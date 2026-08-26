@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     heartbeat_grace_minutes: int = 30
     watchdog_check_interval_minutes: int = 20
 
+    # Discovery slots for orchestration/ticker_selection.py's screen — held
+    # positions are always reassessed on top of this, uncapped (see
+    # docs/superpowers/specs/2026-08-25-ticker-selection-design.md).
+    discovery_slots_per_cycle: int = 4
+
     kill_switch_file: str = str(REPO_ROOT / "KILL_SWITCH")
 
     dashboard_host: str = "127.0.0.1"
@@ -87,7 +92,7 @@ class RiskConfig(BaseModel):
     stale_data_max_age_minutes: int
 
 
-class WatchlistConfig(BaseModel):
+class CandidateUniverseConfig(BaseModel):
     tickers: list[str]
 
 
@@ -96,6 +101,8 @@ def load_risk_config(path: Path = REPO_ROOT / "config" / "risk_config.yaml") -> 
     return RiskConfig.model_validate(data)
 
 
-def load_watchlist(path: Path = REPO_ROOT / "config" / "watchlist.yaml") -> WatchlistConfig:
+def load_candidate_universe(
+    path: Path = REPO_ROOT / "config" / "candidate_universe.yaml",
+) -> CandidateUniverseConfig:
     data = yaml.safe_load(path.read_text())
-    return WatchlistConfig.model_validate(data)
+    return CandidateUniverseConfig.model_validate(data)
