@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     # Discovery slots for orchestration/ticker_selection.py's screen — held
     # positions are always reassessed on top of this, uncapped (see
     # docs/superpowers/specs/2026-08-25-ticker-selection-design.md).
-    discovery_slots_per_cycle: int = 4
+    discovery_slots_per_cycle: int = Field(default=4, ge=0)
 
     kill_switch_file: str = str(REPO_ROOT / "KILL_SWITCH")
 
