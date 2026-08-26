@@ -18,7 +18,7 @@ from tradingsystem.db.repositories import get_active_breaker_event, record_break
 from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
 from tradingsystem.execution.executor import build_portfolio_state, place_order, sync_all_open_orders
-from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion, ticker_selection
+from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion, process_control, ticker_selection
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
 from tradingsystem.risk.position_sizing import size_order
 from tradingsystem.risk.stop_loss import is_stop_loss_triggered
@@ -234,6 +234,9 @@ def run_full_cycle(
         return
 
     for ticker in watchlist:
+        if process_control.is_stop_requested("scheduler"):
+            log.info("stop requested — ending cycle early, %d ticker(s) skipped", len(watchlist) - watchlist.index(ticker))
+            break
         try:
             result = run_research(
                 session, ticker, trade_date=_ny_today().isoformat(),

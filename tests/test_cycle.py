@@ -378,3 +378,13 @@ def test_run_full_cycle_uses_dynamic_ticker_list_when_watchlist_not_given(db_ses
 
     runs = db_session.query(AgentRun).all()
     assert {r.ticker for r in runs} == {"AAPL", "MSFT"}  # AAPL held (uncapped) + MSFT discovered
+
+
+def test_stop_requested_before_loop_skips_all_tickers(db_session, monkeypatch):
+    from tradingsystem.orchestration import process_control
+    monkeypatch.setattr(process_control, "is_stop_requested", lambda name: True)
+    client = FakeAlpacaClient(market_status="open")
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL", "MSFT"])
+
+    assert db_session.query(AgentRun).filter(AgentRun.run_type == "pre_market").count() == 0
