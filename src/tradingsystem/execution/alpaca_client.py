@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import zoneinfo
 from typing import Protocol
 
 from alpaca.data.historical.stock import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestTradeRequest
+from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
+from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import LimitOrderRequest
 
 from tradingsystem.config import Settings
+
+_NY = zoneinfo.ZoneInfo("America/New_York")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -49,6 +53,13 @@ class PositionDetail:
     current_price: float
 
 
+@dataclasses.dataclass(frozen=True)
+class DailyBars:
+    ticker: str
+    closes: list[float]   # oldest to newest
+    volumes: list[float]  # oldest to newest, same ordering as closes
+
+
 def round_to_tick(price: float) -> float:
     """Round to Alpaca's minimum price increment.
 
@@ -68,6 +79,7 @@ class AlpacaClientProtocol(Protocol):
     def get_account(self) -> AccountSnapshot: ...
     def get_positions(self) -> dict[str, float]: ...
     def get_position_details(self) -> list[PositionDetail]: ...
+    def get_recent_daily_bars(self, tickers: list[str], lookback_days: int) -> dict[str, DailyBars]: ...
     def get_open_orders(self) -> set[tuple[str, str]]: ...
     def get_clock(self) -> str: ...
     def get_latest_price(self, ticker: str) -> float: ...
@@ -119,6 +131,33 @@ class AlpacaClient:
             )
             for p in positions
         ]
+
+    def get_recent_daily_bars(self, tickers: list[str], lookback_days: int) -> dict[str, DailyBars]:
+        # Always end at the most recently completed trading day — never
+        # today's still-forming bar, which would understate relative volume
+        # at this system's actual run times (9:35am/12:30pm ET, both
+        # mid-trading-day).
+        end_date = datetime.datetime.now(_NY).date() - datetime.timedelta(days=1)
+        end = datetime.datetime.combine(end_date, datetime.time.min, tzinfo=_NY)
+        start = end - datetime.timedelta(days=lookback_days * 2)  # padding for weekends/holidays
+        request = StockBarsRequest(
+            symbol_or_symbols=tickers,
+            timeframe=TimeFrame.Day,
+            start=start,
+            end=end,
+        )
+        barset = self._data_client.get_stock_bars(request)
+        result: dict[str, DailyBars] = {}
+        for ticker, bars in barset.data.items():
+            trimmed = bars[-lookback_days:]
+            if len(trimmed) < 2:
+                continue
+            result[ticker] = DailyBars(
+                ticker=ticker,
+                closes=[float(b.close) for b in trimmed],
+                volumes=[float(b.volume) for b in trimmed],
+            )
+        return result
 
     def get_open_orders(self) -> set[tuple[str, str]]:
         orders = self._client.get_orders()
