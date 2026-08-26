@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import threading
 import time
 import uuid
 
@@ -132,12 +133,36 @@ _STOP_TIMEOUT_SECONDS = 60
 _START_POLL_INTERVAL_SECONDS = 0.5
 _START_POLL_ATTEMPTS = 6  # ~3 seconds total
 
+# Serializes the check-then-spawn sequence in start_process so two
+# near-simultaneous requests (double-click, two open tabs) can't both pass
+# the alive-check before either has spawned — this dashboard runs as a
+# single local process, so a plain in-process lock is sufficient.
+_start_lock = threading.Lock()
+
 
 def _tail_log(name: str, lines: int = 200) -> str | None:
     log_path = process_control.RUN_DIR / f"{name}.log"
     if not log_path.exists():
         return None
     return "\n".join(log_path.read_text().splitlines()[-lines:])
+
+
+def _require_same_origin(request: Request) -> None:
+    """Rejects cross-origin POSTs to the write routes (CSRF guard).
+
+    Same-origin requests either omit the Origin header (some browsers omit
+    it for same-site form navigations) or send one matching this server's
+    own scheme+host+port; a cross-origin drive-by form POST sends a
+    mismatched Origin, which we reject with 403.
+    """
+    origin = request.headers.get("origin")
+    if origin is None:
+        return
+    hostname = request.url.hostname
+    port = request.url.port
+    expected = f"{request.url.scheme}://{hostname}:{port}" if port else f"{request.url.scheme}://{hostname}"
+    if origin != expected:
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
 
 
 @app.get("/control")
@@ -157,24 +182,26 @@ def control(request: Request):
 
 
 @app.post("/control/{name}/start")
-def start_process(name: str):
+def start_process(name: str, _: None = Depends(_require_same_origin)):
     if name not in ("scheduler", "watchdog"):
         raise HTTPException(status_code=404, detail="Unknown process")
-    if process_control.get_process_status(name).alive:
-        raise HTTPException(status_code=409, detail=f"{name} is already running")
 
-    process_control.spawn_detached(name)
-    for _ in range(_START_POLL_ATTEMPTS):
-        time.sleep(_START_POLL_INTERVAL_SECONDS)
-        status = process_control.get_process_status(name)
-        if status.alive:
-            return {"started": True, "pid": status.pid}
+    with _start_lock:
+        if process_control.get_process_status(name).alive:
+            raise HTTPException(status_code=409, detail=f"{name} is already running")
+
+        process_control.spawn_detached(name)
+        for _ in range(_START_POLL_ATTEMPTS):
+            time.sleep(_START_POLL_INTERVAL_SECONDS)
+            status = process_control.get_process_status(name)
+            if status.alive:
+                return {"started": True, "pid": status.pid}
 
     return {"started": True, "pid": None, "note": "spawned but not yet confirmed alive — refresh shortly"}
 
 
 @app.post("/control/{name}/stop")
-def stop_process(name: str):
+def stop_process(name: str, _: None = Depends(_require_same_origin)):
     if name not in ("scheduler", "watchdog"):
         raise HTTPException(status_code=404, detail="Unknown process")
     status = process_control.get_process_status(name)
@@ -189,12 +216,18 @@ def stop_process(name: str):
         if not process_control.get_process_status(name).alive:
             return {"stopped": True, "forced": False}
 
-    process_control.force_kill(status.pid)
-    process_control.remove_pidfile(name)
-    return {"stopped": True, "forced": True}
+    # Re-check right before killing rather than trusting the PID captured
+    # up to 60s ago — narrows (does not eliminate) the window in which a
+    # since-exited process's PID could have been reassigned by the OS.
+    final_status = process_control.get_process_status(name)
+    if final_status.alive:
+        process_control.force_kill(final_status.pid)
+        process_control.remove_pidfile(name)
+        return {"stopped": True, "forced": True}
+    return {"stopped": True, "forced": False}
 
 
 @app.post("/control/run-now")
-def run_now():
+def run_now(_: None = Depends(_require_same_origin)):
     pid = process_control.spawn_detached("run_once")
     return {"started": True, "pid": pid}
