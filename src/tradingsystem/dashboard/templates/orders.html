@@ -5,7 +5,7 @@
 
 <table>
     <thead>
-        <tr><th>Submitted</th><th>Ticker</th><th>Side</th><th>Qty</th><th>Limit</th><th>Status</th><th>Decision</th><th>Fills</th></tr>
+        <tr><th>Submitted</th><th>Ticker</th><th>Side</th><th>Qty</th><th>Limit</th><th>Status</th><th>Decision</th><th>Fills</th><th>Cancel</th></tr>
     </thead>
     <tbody>
         {% for order in orders %}
@@ -28,9 +28,18 @@
                 -
                 {% endif %}
             </td>
+            <td>
+                {% if order.status not in terminal_order_statuses %}
+                <form method="post" action="/orders/{{ order.id }}/cancel" style="display:inline">
+                    <button type="submit">Cancel</button>
+                </form>
+                {% else %}
+                -
+                {% endif %}
+            </td>
         </tr>
         {% else %}
-        <tr><td colspan="8">No orders recorded yet.</td></tr>
+        <tr><td colspan="9">No orders recorded yet.</td></tr>
         {% endfor %}
     </tbody>
 </table>

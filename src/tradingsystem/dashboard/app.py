@@ -26,10 +26,12 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from tradingsystem.config import REPO_ROOT
+from tradingsystem.config import REPO_ROOT, Settings
 from tradingsystem.dashboard import config_editing
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
 from tradingsystem.db.session import make_session_factory
+from tradingsystem.execution.alpaca_client import AlpacaClient, AlpacaClientProtocol
+from tradingsystem.execution.executor import _TERMINAL_ORDER_STATUSES
 from tradingsystem.orchestration import heartbeat as heartbeat_module
 from tradingsystem.orchestration import process_control
 
@@ -65,6 +67,10 @@ def get_db():
         yield session
     finally:
         session.close()
+
+
+def get_alpaca_client() -> AlpacaClientProtocol:
+    return AlpacaClient(Settings())
 
 
 HEARTBEAT_STALE_AFTER = datetime.timedelta(hours=12)
@@ -137,7 +143,9 @@ def decision_detail(request: Request, agent_run_id: uuid.UUID, db: Session = Dep
 @app.get("/orders")
 def orders_list(request: Request, db: Session = Depends(get_db)):
     orders = db.query(Order).order_by(Order.submitted_at.desc()).all()
-    return templates.TemplateResponse(request, "orders.html", {"orders": orders})
+    return templates.TemplateResponse(
+        request, "orders.html", {"orders": orders, "terminal_order_statuses": _TERMINAL_ORDER_STATUSES},
+    )
 
 
 @app.get("/pnl")
@@ -203,6 +211,25 @@ def _require_same_origin(request: Request) -> None:
     origin_host = urllib.parse.urlsplit(origin).hostname
     if origin_host not in _ALLOWED_ORIGIN_HOSTS:
         raise HTTPException(status_code=403, detail="Cross-origin request rejected")
+
+
+@app.post("/orders/{order_id}/cancel")
+def cancel_order_route(
+    order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    alpaca_client: AlpacaClientProtocol = Depends(get_alpaca_client),
+    _: None = Depends(_require_same_origin),
+):
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status in _TERMINAL_ORDER_STATUSES:
+        raise HTTPException(status_code=409, detail=f"order already {order.status}, nothing to cancel")
+    try:
+        alpaca_client.cancel_order(order.alpaca_order_id)
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return RedirectResponse("/orders", status_code=303)
 
 
 @app.post("/config/candidate-universe")
