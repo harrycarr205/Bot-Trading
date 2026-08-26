@@ -39,3 +39,54 @@ def write_candidate_universe(path: Path, tickers: list[str]) -> None:
     data["tickers"] = tickers
     with path.open("w") as f:
         _yaml.dump(data, f)
+
+
+_RISK_CONFIG_PCT_FIELDS = (
+    "max_position_pct", "cash_reserve_pct", "stop_loss_pct",
+    "daily_drawdown_breaker_pct", "weekly_drawdown_breaker_pct",
+)
+
+
+def read_risk_config_values(path: Path) -> dict[str, float | int]:
+    with path.open("r") as f:
+        data = _yaml.load(f)
+    return {
+        **{field: float(data[field]) for field in _RISK_CONFIG_PCT_FIELDS},
+        "stale_data_max_age_minutes": int(data["stale_data_max_age_minutes"]),
+    }
+
+
+def _validate_risk_config_field(field: str, value: float | int) -> None:
+    if field in _RISK_CONFIG_PCT_FIELDS:
+        if not (0 < value <= 1):
+            raise ValueError(f"{field} must be in (0, 1], got {value}")
+    elif field == "stale_data_max_age_minutes":
+        if value <= 0:
+            raise ValueError(f"{field} must be > 0, got {value}")
+    else:
+        raise ValueError(f"unknown risk_config field: {field}")
+
+
+def write_risk_config(
+    path: Path, updates: dict[str, float | int],
+) -> dict[str, tuple[float | int, float | int]]:
+    for field, value in updates.items():
+        _validate_risk_config_field(field, value)
+
+    with path.open("r") as f:
+        data = _yaml.load(f)
+
+    changes: dict[str, tuple[float | int, float | int]] = {}
+    for field, new_value in updates.items():
+        old_value = data[field]
+        if field in _RISK_CONFIG_PCT_FIELDS:
+            old_value = float(old_value)
+        else:
+            old_value = int(old_value)
+        if old_value != new_value:
+            changes[field] = (old_value, new_value)
+            data[field] = new_value
+
+    with path.open("w") as f:
+        _yaml.dump(data, f)
+    return changes
