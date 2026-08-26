@@ -11,3 +11,4 @@ venv/
 pgdata/
 logs/
 *.log
+run/
