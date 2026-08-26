@@ -1,8 +1,8 @@
 """Settings loaded from .env (via pydantic-settings) plus the two YAML config files.
 
-config/watchlist.yaml and config/risk_config.yaml are intentionally kept as separate,
+config/candidate_universe.yaml and config/risk_config.yaml are intentionally kept as separate,
 freely editable files rather than env vars — see ARCHITECTURE.md §4/§5 notes on why
-the watchlist and risk numbers are config, not code.
+the candidate universe and risk numbers are config, not code.
 """
 
 from __future__ import annotations
