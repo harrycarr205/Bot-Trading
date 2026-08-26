@@ -199,17 +199,25 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   errors, scheduler heartbeat failure, and every trade placed (full
   visibility, not just failures).
 - **Simple dashboard** over the second brain — built 2026-08-25
-  (`src/tradingsystem/dashboard/`). Read-only, on-demand (`python -m
-  tradingsystem.dashboard`), serves `127.0.0.1:8787` by default. Five views:
+  (`src/tradingsystem/dashboard/`), on-demand (`python -m
+  tradingsystem.dashboard`), serves `127.0.0.1:8787` by default. Six views:
   overview (latest portfolio snapshot, scheduler heartbeat, active circuit
   breakers), decisions/journal (filterable by ticker, includes no-action
   days), decision detail (full ordered debate transcript), orders/fills,
-  and P&L history. No write actions from the dashboard itself and no
-  authentication, both deliberate given this is a single-operator,
-  localhost-only tool. Circuit-breaker clearing has its own separate CLI
+  P&L history, and control (scheduler/watchdog start/stop, off-cycle run
+  trigger — added 2026-08-26). Process control is the dashboard's one
+  write capability: starting/stopping the scheduler and watchdog processes
+  and triggering an off-cycle research/trade cycle. Config editing, order
+  cancellation, circuit-breaker clearing, and the kill switch all remain
+  outside the dashboard. Circuit-breaker clearing has its own separate CLI
   instead (`python -m tradingsystem.db.clear_breaker`), deliberately kept
   outside the dashboard so a clear always requires a human-supplied name
-  and review note, never a button click.
+  and review note, never a button click. The dashboard still has no
+  authentication, on the same single-operator, localhost-only reasoning as
+  before — but that decision now carries more weight than when the
+  dashboard was purely read-only, since an unauthenticated client on the
+  machine can now start/stop the live trading process. Flagged as a known
+  trade-off, not resolved by this plan.
 
 ---
 

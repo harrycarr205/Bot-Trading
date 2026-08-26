@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import time
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
 from tradingsystem.db.session import make_session_factory
 from tradingsystem.orchestration import heartbeat as heartbeat_module
+from tradingsystem.orchestration import process_control
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -123,3 +125,76 @@ def pnl(request: Request, db: Session = Depends(get_db)):
     snapshots = db.query(PortfolioSnapshot).order_by(PortfolioSnapshot.snapshot_date.desc()).all()
     realized = db.query(RealizedPnl).order_by(RealizedPnl.closed_at.desc()).all()
     return templates.TemplateResponse(request, "pnl.html", {"snapshots": snapshots, "realized": realized})
+
+
+_STOP_POLL_INTERVAL_SECONDS = 2
+_STOP_TIMEOUT_SECONDS = 60
+_START_POLL_INTERVAL_SECONDS = 0.5
+_START_POLL_ATTEMPTS = 6  # ~3 seconds total
+
+
+def _tail_log(name: str, lines: int = 200) -> str | None:
+    log_path = process_control.RUN_DIR / f"{name}.log"
+    if not log_path.exists():
+        return None
+    return "\n".join(log_path.read_text().splitlines()[-lines:])
+
+
+@app.get("/control")
+def control(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "control.html",
+        {
+            "scheduler_status": process_control.get_process_status("scheduler"),
+            "watchdog_status": process_control.get_process_status("watchdog"),
+            "scheduler_log": _tail_log("scheduler"),
+            "watchdog_log": _tail_log("watchdog"),
+            "scheduler_stop_forced": False,
+            "watchdog_stop_forced": False,
+        },
+    )
+
+
+@app.post("/control/{name}/start")
+def start_process(name: str):
+    if name not in ("scheduler", "watchdog"):
+        raise HTTPException(status_code=404, detail="Unknown process")
+    if process_control.get_process_status(name).alive:
+        raise HTTPException(status_code=409, detail=f"{name} is already running")
+
+    process_control.spawn_detached(name)
+    for _ in range(_START_POLL_ATTEMPTS):
+        time.sleep(_START_POLL_INTERVAL_SECONDS)
+        status = process_control.get_process_status(name)
+        if status.alive:
+            return {"started": True, "pid": status.pid}
+
+    return {"started": True, "pid": None, "note": "spawned but not yet confirmed alive — refresh shortly"}
+
+
+@app.post("/control/{name}/stop")
+def stop_process(name: str):
+    if name not in ("scheduler", "watchdog"):
+        raise HTTPException(status_code=404, detail="Unknown process")
+    status = process_control.get_process_status(name)
+    if not status.alive:
+        return {"stopped": True, "forced": False, "note": "was not running"}
+
+    process_control.request_stop(name)
+    waited = 0.0
+    while waited < _STOP_TIMEOUT_SECONDS:
+        time.sleep(_STOP_POLL_INTERVAL_SECONDS)
+        waited += _STOP_POLL_INTERVAL_SECONDS
+        if not process_control.get_process_status(name).alive:
+            return {"stopped": True, "forced": False}
+
+    process_control.force_kill(status.pid)
+    process_control.remove_pidfile(name)
+    return {"stopped": True, "forced": True}
+
+
+@app.post("/control/run-now")
+def run_now():
+    pid = process_control.spawn_detached("run_once")
+    return {"started": True, "pid": pid}

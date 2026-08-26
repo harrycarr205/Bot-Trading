@@ -6,7 +6,8 @@ on a dynamically selected set of tickers, hands each decision to a deterministic
 risk-validation layer, and — if the decision survives validation — places a
 limit order through Alpaca's paper-trading API. Every run, decision, order,
 fill, and circuit-breaker event is journaled to a Postgres "second brain,"
-viewable through a small read-only dashboard.
+viewable — and, for the scheduler/watchdog processes, controllable —
+through a small dashboard.
 
 Full design rationale, confirmed risk numbers, and open items live in
 [`ARCHITECTURE.md`](ARCHITECTURE.md) — this file is about running it.
@@ -81,7 +82,7 @@ src/tradingsystem/
     heartbeat.py, discord_alerts.py, memory_ingestion.py
   db/
     models.py, repositories.py, session.py, init_db.py, clear_breaker.py
-  dashboard/                    Read-only FastAPI + Jinja2 web UI
+  dashboard/                    FastAPI + Jinja2 web UI (read-only views + process control)
 config/
   risk_config.yaml              Risk numbers (position size, stop-loss, breakers) — edit freely
   candidate_universe.yaml        Discovery-screen candidate pool — edit freely, takes effect next cycle
@@ -168,19 +169,24 @@ scheduler appears to have died or hung. Start this in its own terminal
 window too — it does nothing useful bundled into the scheduler's process,
 since the whole point is surviving that process's death.
 
-### The dashboard (read-only, on demand)
+### The dashboard (on demand)
 
 ```powershell
 python -m tradingsystem.dashboard
 ```
 
 Serves `http://127.0.0.1:8787` by default (`DASHBOARD_HOST` /
-`DASHBOARD_PORT` in `.env`). Five views: overview (latest snapshot,
+`DASHBOARD_PORT` in `.env`). Six views: overview (latest snapshot,
 heartbeat, active breakers), decisions/journal, decision detail (full
-debate transcript), orders/fills, and P&L. No write actions, no
-authentication — both deliberate for this single-operator, localhost-only
-tool. Start it whenever you want to look, stop it whenever you're done;
-it has no effect on the scheduler.
+debate transcript), orders/fills, P&L, and control (start/stop the
+scheduler and watchdog, trigger an off-cycle run). Process control is the
+dashboard's only write capability — starting/stopping those two processes
+and kicking off an off-cycle cycle. There's still no authentication,
+deliberate for this single-operator, localhost-only tool, but note it now
+also means an unauthenticated local client can start/stop the live
+trading process, not just view data. Start the dashboard whenever you
+want to look or manage the processes, stop it whenever you're done; the
+scheduler and watchdog keep running independently either way.
 
 ### Clearing a tripped circuit breaker
 
