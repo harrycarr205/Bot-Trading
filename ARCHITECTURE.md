@@ -200,28 +200,33 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   visibility, not just failures).
 - **Simple dashboard** over the second brain — built 2026-08-25
   (`src/tradingsystem/dashboard/`), on-demand (`python -m
-  tradingsystem.dashboard`), serves `127.0.0.1:8787` by default. Six views:
-  overview (latest portfolio snapshot, scheduler heartbeat, active circuit
-  breakers), decisions/journal (filterable by ticker, includes no-action
-  days), decision detail (full ordered debate transcript), orders/fills,
-  P&L history, and control (scheduler/watchdog start/stop, off-cycle run
-  trigger — added 2026-08-26). Process control is the dashboard's one
-  write capability: starting/stopping the scheduler and watchdog processes
-  and triggering an off-cycle research/trade cycle. Config editing, order
-  cancellation, circuit-breaker clearing, and the kill switch all remain
-  outside the dashboard. Circuit-breaker clearing has its own separate CLI
-  instead (`python -m tradingsystem.db.clear_breaker`), deliberately kept
-  outside the dashboard so a clear always requires a human-supplied name
-  and review note, never a button click. Every write route is protected by
+  tradingsystem.dashboard`), serves `127.0.0.1:8787` by default. Seven
+  views: overview (latest portfolio snapshot, scheduler heartbeat, active
+  circuit breakers), decisions/journal (filterable by ticker, includes
+  no-action days), decision detail (full ordered debate transcript),
+  orders/fills (with per-order cancel — added 2026-08-26), P&L history,
+  config (candidate universe, risk config, and select `.env` settings
+  editing — added 2026-08-26), and control (scheduler/watchdog start/stop,
+  off-cycle run trigger — added 2026-08-26). Write capability now spans
+  process control (start/stop, off-cycle run), order cancellation, and
+  config editing (candidate universe tickers, risk config fields, and a
+  handful of env settings); risk config edits require a justification
+  note and are appended to `run/config_changes.log` for audit. Circuit-
+  breaker clearing and the kill switch still remain outside the
+  dashboard. Circuit-breaker clearing has its own separate CLI instead
+  (`python -m tradingsystem.db.clear_breaker`), deliberately kept outside
+  the dashboard so a clear always requires a human-supplied name and
+  review note, never a button click. Every write route is protected by
   a same-origin check (CSRF guard) — not full authentication; the
   dashboard still has no authentication, on the same single-operator,
   localhost-only reasoning as before — but that decision now carries more
   weight than when the dashboard was purely read-only, since an
   unauthenticated client on the machine can now start/stop the live
-  trading process. Flagged as a known trade-off, not resolved by this
-  plan. Stopping honors an in-flight research cycle (finishes the current
-  ticker, declines the next); a stop that doesn't complete within 60s
-  reports "still running" rather than auto-killing — an explicit separate
+  trading process, cancel orders, and edit risk config. Flagged as a
+  known trade-off, not resolved by this plan. Stopping honors an
+  in-flight research cycle (finishes the current ticker, declines the
+  next); a stop that doesn't complete within 60s reports "still running"
+  rather than auto-killing — an explicit separate
   Force Stop action is required to kill immediately, because a forced kill
   mid-order-submission can orphan a live order at the broker with no local
   record. `run/scheduler.log`, `run/watchdog.log`, and `run/run_once.log`
