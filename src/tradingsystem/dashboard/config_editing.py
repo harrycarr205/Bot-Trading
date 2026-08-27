@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 from ruamel.yaml import YAML
+from ruamel.yaml.tokens import CommentToken
 
 _yaml = YAML()
 _yaml.preserve_quotes = True
@@ -36,7 +37,44 @@ def write_candidate_universe(path: Path, tickers: list[str]) -> None:
 
     with path.open("r") as f:
         data = _yaml.load(f)
-    data["tickers"] = tickers
+    existing = data["tickers"]
+    existing_list = list(existing)
+    to_remove_indices = [i for i, t in enumerate(existing_list) if t not in tickers]
+
+    # ruamel attaches a standalone ("own line") comment to the *preceding*
+    # item's slot, even though visually it reads as a header for whatever
+    # ticker follows it (e.g. a "# Healthcare" section header sitting above
+    # the first healthcare ticker gets attached to the last tech ticker
+    # above it). A plain remove() would silently drop that header along with
+    # the removed ticker. Walk removals back-to-front and, for any standalone
+    # comment on a removed item, carry it onto the new predecessor (or onto
+    # the sequence's own leading comment, if the removed item was first) so
+    # section headers survive even when the ticker they used to trail behind
+    # is the one being removed. An inline same-line comment (no leading
+    # newline) genuinely belongs to the removed ticker itself and is dropped
+    # with it, as intended.
+    for idx in reversed(to_remove_indices):
+        entry = existing.ca.items.get(idx)
+        comment = entry[0] if entry else None
+        if comment is not None and comment.value.startswith("\n"):
+            if idx > 0:
+                prev_entry = existing.ca.items.setdefault(idx - 1, [None, None, None, None])
+                if prev_entry[0] is None:
+                    prev_entry[0] = comment
+                else:
+                    prev_entry[0] = CommentToken(
+                        prev_entry[0].value + comment.value, comment.start_mark, comment.end_mark,
+                    )
+            else:
+                pre = existing.ca.comment
+                lst = list(pre[1]) if pre is not None and pre[1] is not None else []
+                lst.append(comment)
+                existing.ca.comment = [pre[0] if pre is not None else None, lst]
+        del existing[idx]
+
+    for ticker in tickers:
+        if ticker not in existing_list:
+            existing.append(ticker)
     with path.open("w") as f:
         _yaml.dump(data, f)
 

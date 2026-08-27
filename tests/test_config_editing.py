@@ -33,6 +33,31 @@ def test_write_candidate_universe_preserves_header_comment(tmp_path):
     assert config_editing.read_candidate_universe_tickers(path) == ["AAPL", "NVDA", "BRK.B"]
 
 
+def test_write_candidate_universe_preserves_inline_comments_on_untouched_tickers(tmp_path):
+    yaml_with_inline_comments = """\
+tickers:
+  # Tech
+  - AAPL
+  - MSFT
+  # Broad-market index ETFs
+  - SPY   # S&P 500
+  - QQQ   # Nasdaq-100
+"""
+    path = tmp_path / "candidate_universe.yaml"
+    path.write_text(yaml_with_inline_comments)
+
+    # Add NVDA, remove MSFT — AAPL, SPY, QQQ and their comments must survive untouched.
+    config_editing.write_candidate_universe(path, ["AAPL", "SPY", "QQQ", "NVDA"])
+
+    content = path.read_text()
+    assert "# Tech" in content
+    assert "# Broad-market index ETFs" in content
+    assert "# S&P 500" in content
+    assert "# Nasdaq-100" in content
+    assert "MSFT" not in content
+    assert set(config_editing.read_candidate_universe_tickers(path)) == {"AAPL", "SPY", "QQQ", "NVDA"}
+
+
 def test_write_candidate_universe_rejects_empty_list(tmp_path):
     path = tmp_path / "candidate_universe.yaml"
     path.write_text(CANDIDATE_UNIVERSE_YAML)
