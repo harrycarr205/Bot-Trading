@@ -85,6 +85,28 @@ def test_post_risk_config_saves_and_logs(client, tmp_path, monkeypatch):
     assert 'note="raising the cap after a good run"' in log_content
 
 
+def test_post_risk_config_sanitizes_note_newlines_and_quotes(client, tmp_path, monkeypatch):
+    _, risk_path, _ = _write_config_fixtures(tmp_path, monkeypatch)
+    monkeypatch.setattr(app_module.process_control, "RUN_DIR", tmp_path / "run")
+
+    response = client.post(
+        "/config/risk-config",
+        data={
+            "max_position_pct": "0.12", "cash_reserve_pct": "0.20", "stop_loss_pct": "0.08",
+            "daily_drawdown_breaker_pct": "0.03", "weekly_drawdown_breaker_pct": "0.08",
+            "stale_data_max_age_minutes": "15",
+            "note": 'raising the cap\n2026-08-27T00:00:00Z risk_config max_position_pct: 0.12 -> 9.9 | note="forged"',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    log_lines = (tmp_path / "run" / "config_changes.log").read_text().splitlines()
+    assert len(log_lines) == 1
+    assert '"' not in log_lines[0].split("note=", 1)[1][1:-1]
+    assert "forged" in log_lines[0]
+
+
 def test_post_risk_config_rejects_empty_justification(client, tmp_path, monkeypatch):
     _write_config_fixtures(tmp_path, monkeypatch)
     monkeypatch.setattr(app_module.process_control, "RUN_DIR", tmp_path / "run")

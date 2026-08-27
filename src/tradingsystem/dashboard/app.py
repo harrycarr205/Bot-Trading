@@ -258,6 +258,10 @@ def post_risk_config(
         raise HTTPException(status_code=422, detail="justification is required")
     if len(note) > 2000:
         raise HTTPException(status_code=422, detail="justification must be 2000 characters or fewer")
+    # config_changes.log is one line per field with note="..." trailing each line;
+    # an embedded newline would break that format and an embedded quote could forge
+    # a second note= clause, so collapse whitespace and neutralize quotes here.
+    note = " ".join(note.split()).replace('"', "'")
 
     updates = {
         "max_position_pct": max_position_pct,
