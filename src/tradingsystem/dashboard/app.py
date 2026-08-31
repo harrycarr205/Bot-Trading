@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from tradingsystem.config import REPO_ROOT, Settings
 from tradingsystem.dashboard import config_editing
 from tradingsystem.dashboard.dependencies import get_alpaca_client, get_db, require_same_origin
+from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
 from tradingsystem.execution.executor import _TERMINAL_ORDER_STATUSES
 from tradingsystem.orchestration import heartbeat as heartbeat_module
