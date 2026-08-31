@@ -28,8 +28,7 @@ from sqlalchemy.orm import Session
 from tradingsystem.config import REPO_ROOT, Settings
 from tradingsystem.dashboard import config_editing
 from tradingsystem.dashboard.dependencies import get_alpaca_client, get_db, require_same_origin
-from tradingsystem.dashboard.routes import overview as overview_routes
-from tradingsystem.dashboard.routes import positions
+from tradingsystem.dashboard.routes import decisions, overview as overview_routes, positions
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
 from tradingsystem.execution.executor import _TERMINAL_ORDER_STATUSES
@@ -60,6 +59,7 @@ templates.env.filters["money"] = _money
 app = FastAPI(title="Bot-Trading Dashboard")
 app.include_router(overview_routes.router, prefix="/api")
 app.include_router(positions.router, prefix="/api")
+app.include_router(decisions.router, prefix="/api")
 
 HEARTBEAT_STALE_AFTER = datetime.timedelta(hours=12)
 
