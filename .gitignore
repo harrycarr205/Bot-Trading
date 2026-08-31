@@ -12,3 +12,5 @@ pgdata/
 logs/
 *.log
 run/
+frontend/node_modules/
+frontend/dist/
