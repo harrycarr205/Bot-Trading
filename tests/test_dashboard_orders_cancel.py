@@ -1,7 +1,8 @@
 import datetime
 import uuid
 
-from tradingsystem.dashboard.app import app, get_alpaca_client
+from tradingsystem.dashboard.app import app
+from tradingsystem.dashboard.dependencies import get_alpaca_client
 from tradingsystem.db.models import AgentRun, Decision, Order
 
 

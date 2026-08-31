@@ -1,7 +1,7 @@
 """FastAPI dashboard app over the second-brain database — mostly read-only,
 plus a small process-control surface (ARCHITECTURE.md §7): start/stop the
 scheduler/watchdog, trigger an off-cycle run, and view their logs. Every
-write route is guarded by _require_same_origin (a same-origin/CSRF check)
+write route is guarded by require_same_origin (a same-origin/CSRF check)
 and, for start, an in-process lock serializing the check-then-spawn
 sequence. Circuit-breaker clearing and the kill switch remain CLI-only —
 deliberately excluded, see ARCHITECTURE.md §7. localhost-only, no
@@ -16,7 +16,6 @@ import datetime
 import pathlib
 import threading
 import time
-import urllib.parse
 import uuid
 
 from apscheduler.triggers.cron import CronTrigger
@@ -28,9 +27,8 @@ from sqlalchemy.orm import Session
 
 from tradingsystem.config import REPO_ROOT, Settings
 from tradingsystem.dashboard import config_editing
+from tradingsystem.dashboard.dependencies import get_alpaca_client, get_db, require_same_origin
 from tradingsystem.db.models import AgentRun, CircuitBreakerEvent, DebateTranscript, Decision, Order, PortfolioSnapshot, RealizedPnl
-from tradingsystem.db.session import make_session_factory
-from tradingsystem.execution.alpaca_client import AlpacaClient, AlpacaClientProtocol
 from tradingsystem.execution.executor import _TERMINAL_ORDER_STATUSES
 from tradingsystem.orchestration import heartbeat as heartbeat_module
 from tradingsystem.orchestration import process_control
@@ -57,21 +55,6 @@ def _money(value) -> str:
 templates.env.filters["money"] = _money
 
 app = FastAPI(title="Bot-Trading Dashboard")
-
-_session_factory = make_session_factory()
-
-
-def get_db():
-    session = _session_factory()
-    try:
-        yield session
-    finally:
-        session.close()
-
-
-def get_alpaca_client() -> AlpacaClientProtocol:
-    return AlpacaClient(Settings())
-
 
 HEARTBEAT_STALE_AFTER = datetime.timedelta(hours=12)
 
@@ -191,34 +174,12 @@ def _tail_log(name: str, lines: int = 200) -> str | None:
     return "\n".join(log_path.read_text().splitlines()[-lines:])
 
 
-# This dashboard is documented and designed as localhost-only (Settings.dashboard_host
-# defaults to "127.0.0.1") — pinned here rather than derived from the request's own Host
-# header, which uvicorn does not validate and a DNS-rebinding attacker could spoof.
-_ALLOWED_ORIGIN_HOSTS = {"127.0.0.1", "localhost"}
-
-
-def _require_same_origin(request: Request) -> None:
-    """Rejects cross-origin POSTs to the write routes (CSRF guard).
-
-    Same-origin requests either omit the Origin header (some browsers omit
-    it for same-site form navigations) or send one whose host is in
-    _ALLOWED_ORIGIN_HOSTS; a cross-origin drive-by form POST sends some
-    other Origin, which we reject with 403.
-    """
-    origin = request.headers.get("origin")
-    if origin is None:
-        return
-    origin_host = urllib.parse.urlsplit(origin).hostname
-    if origin_host not in _ALLOWED_ORIGIN_HOSTS:
-        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
-
-
 @app.post("/orders/{order_id}/cancel")
 def cancel_order_route(
     order_id: uuid.UUID,
     db: Session = Depends(get_db),
     alpaca_client: AlpacaClientProtocol = Depends(get_alpaca_client),
-    _: None = Depends(_require_same_origin),
+    _: None = Depends(require_same_origin),
 ):
     order = db.get(Order, order_id)
     if order is None:
@@ -233,7 +194,7 @@ def cancel_order_route(
 
 
 @app.post("/config/candidate-universe")
-def post_candidate_universe(tickers: str = Form(...), _: None = Depends(_require_same_origin)):
+def post_candidate_universe(tickers: str = Form(...), _: None = Depends(require_same_origin)):
     ticker_list = [line.strip() for line in tickers.splitlines() if line.strip()]
     try:
         config_editing.write_candidate_universe(_CANDIDATE_UNIVERSE_PATH, ticker_list)
@@ -251,7 +212,7 @@ def post_risk_config(
     weekly_drawdown_breaker_pct: float = Form(...),
     stale_data_max_age_minutes: int = Form(...),
     note: str = Form(...),
-    _: None = Depends(_require_same_origin),
+    _: None = Depends(require_same_origin),
 ):
     note = note.strip()
     if not note:
@@ -288,7 +249,7 @@ def post_env_settings(
     midday_cron: str = Form(...),
     tradingagents_deep_think_model: str = Form(...),
     tradingagents_quick_think_model: str = Form(...),
-    _: None = Depends(_require_same_origin),
+    _: None = Depends(require_same_origin),
 ):
     if discovery_slots_per_cycle < 0:
         raise HTTPException(status_code=422, detail="discovery_slots_per_cycle must be >= 0")
@@ -329,7 +290,7 @@ def control(request: Request):
 
 
 @app.post("/control/{name}/start")
-def start_process(name: str, _: None = Depends(_require_same_origin)):
+def start_process(name: str, _: None = Depends(require_same_origin)):
     if name not in ("scheduler", "watchdog"):
         raise HTTPException(status_code=404, detail="Unknown process")
 
@@ -349,7 +310,7 @@ def start_process(name: str, _: None = Depends(_require_same_origin)):
 
 
 @app.post("/control/{name}/stop")
-def stop_process(name: str, _: None = Depends(_require_same_origin)):
+def stop_process(name: str, _: None = Depends(require_same_origin)):
     if name not in ("scheduler", "watchdog"):
         raise HTTPException(status_code=404, detail="Unknown process")
     status = process_control.get_process_status(name)
@@ -377,7 +338,7 @@ def stop_process(name: str, _: None = Depends(_require_same_origin)):
 
 
 @app.post("/control/{name}/force-stop")
-def force_stop_process(name: str, _: None = Depends(_require_same_origin)):
+def force_stop_process(name: str, _: None = Depends(require_same_origin)):
     """Deliberate, separate action from /stop — never triggered automatically.
     A graceful stop can time out while a research cycle is still in flight
     (measured ~22 min/ticker); force-killing then can orphan an order already
@@ -397,6 +358,6 @@ def force_stop_process(name: str, _: None = Depends(_require_same_origin)):
 
 
 @app.post("/control/run-now")
-def run_now(_: None = Depends(_require_same_origin)):
+def run_now(_: None = Depends(require_same_origin)):
     pid = process_control.spawn_detached("run_once")
     return {"started": True, "pid": pid}

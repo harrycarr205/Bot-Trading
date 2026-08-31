@@ -15,7 +15,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from tradingsystem.config import Settings
-from tradingsystem.dashboard.app import app, get_db
+from tradingsystem.dashboard.app import app
+from tradingsystem.dashboard.dependencies import get_db
 from tradingsystem.db.models import Base
 
 
