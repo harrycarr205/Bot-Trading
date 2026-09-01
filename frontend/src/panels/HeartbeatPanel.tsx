@@ -3,11 +3,13 @@ import { api } from "../api/client";
 import { StatusDot } from "../components/StatusDot";
 import type { PanelDefinition } from "./types";
 
+const TITLE = "Heartbeat";
+
 function HeartbeatPanel() {
   const { data } = usePolling(api.overview, 10_000);
   return (
     <div>
-      <div className="label" style={{ fontSize: 11, marginBottom: 8 }}>Heartbeat</div>
+      <div className="label" style={{ fontSize: 11, marginBottom: 8 }}>{TITLE}</div>
       {!data?.heartbeat ? (
         <div>No heartbeat recorded yet.</div>
       ) : (
@@ -23,5 +25,5 @@ function HeartbeatPanel() {
 }
 
 export const panel: PanelDefinition = {
-  id: "heartbeat", title: "Heartbeat", defaultSize: { w: 3, h: 2 }, Component: HeartbeatPanel,
+  id: "heartbeat", title: TITLE, defaultSize: { w: 3, h: 2 }, Component: HeartbeatPanel,
 };

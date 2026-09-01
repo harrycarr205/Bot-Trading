@@ -43,6 +43,8 @@ export function DashboardGrid() {
       draggableHandle=".panel-drag-handle"
     >
       {panelRegistry.map((p) => (
+        // Each panel renders its own title (via a module-level TITLE const shared with panel.title) —
+        // the grid renders no chrome, to avoid double-rendering a panel's title alongside its own content (e.g. StatTile's label).
         <div key={p.id} className="panel-drag-handle" style={{ background: "var(--panel)", border: "1px solid var(--hairline)", borderRadius: "var(--radius)", padding: 12, overflow: "auto", cursor: "move" }}>
           <p.Component />
         </div>
