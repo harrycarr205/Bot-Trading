@@ -7,11 +7,14 @@ const TITLE = "Equity curve";
 
 function EquityCurvePanel() {
   const { data } = usePolling(api.pnlSeries, 30_000);
-  if (!data || data.points.length === 0) return null;
   return (
     <div>
       <div className="label" style={{ fontSize: 11, marginBottom: 8 }}>{TITLE}</div>
-      <Chart points={data.points as any} xKey="date" yKey="equity" height={180} />
+      {!data || data.points.length === 0 ? (
+        <div>No portfolio snapshots recorded yet.</div>
+      ) : (
+        <Chart points={data.points as any} xKey="date" yKey="equity" height={180} />
+      )}
     </div>
   );
 }
