@@ -1,3 +1,5 @@
+import { DashboardGrid } from "../components/DashboardGrid";
+
 export default function Overview() {
-  return <div>Overview — not yet implemented</div>;
+  return <DashboardGrid />;
 }
