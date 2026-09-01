@@ -21,7 +21,8 @@ import uuid
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, Form, HTTPException
 from fastapi.requests import Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -65,6 +66,11 @@ app.include_router(tickers.router, prefix="/api")
 app.include_router(pnl_routes.router, prefix="/api")
 app.include_router(control_routes.router, prefix="/api")
 app.include_router(config_routes.router, prefix="/api")
+
+_FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+
+if (_FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="frontend-assets")
 
 HEARTBEAT_STALE_AFTER = datetime.timedelta(hours=12)
 
@@ -371,3 +377,8 @@ def force_stop_process(name: str, _: None = Depends(require_same_origin)):
 def run_now(_: None = Depends(require_same_origin)):
     pid = process_control.spawn_detached("run_once")
     return {"started": True, "pid": pid}
+
+
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str) -> FileResponse:
+    return FileResponse(str(_FRONTEND_DIST / "index.html"))
