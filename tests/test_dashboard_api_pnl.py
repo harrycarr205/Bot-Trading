@@ -18,6 +18,19 @@ def test_api_pnl_lists_snapshots_and_realized(client, db_session):
     assert body["realized"][0]["pnl_amount"] == 250.0
 
 
+def test_api_pnl_returns_empty_lists_when_no_data_exists(client, db_session):
+    db_session.query(PortfolioSnapshot).delete()
+    db_session.query(RealizedPnl).delete()
+    db_session.flush()
+
+    response = client.get("/api/pnl")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["snapshots"] == []
+    assert body["realized"] == []
+
+
 def test_api_pnl_series_orders_points_by_date_ascending(client, db_session):
     db_session.query(PortfolioSnapshot).delete()
     db_session.flush()

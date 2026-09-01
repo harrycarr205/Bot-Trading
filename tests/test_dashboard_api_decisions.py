@@ -53,3 +53,15 @@ def test_api_decision_detail_orders_transcripts_by_role(client, db_session):
 def test_api_decision_detail_404_for_missing_run(client, db_session):
     response = client.get(f"/api/decisions/{uuid.uuid4()}")
     assert response.status_code == 404
+
+
+def test_api_decisions_returns_empty_list_when_no_runs_exist(client, db_session):
+    db_session.query(DebateTranscript).delete()
+    db_session.query(Decision).delete()
+    db_session.query(AgentRun).delete()
+    db_session.flush()
+
+    response = client.get("/api/decisions")
+
+    assert response.status_code == 200
+    assert response.json()["runs"] == []

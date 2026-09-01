@@ -40,3 +40,16 @@ def test_api_orders_terminal_status_is_not_cancellable(client, db_session):
 
     body = response.json()
     assert all(o["cancellable"] is False for o in body["orders"] if o["status"] == "filled")
+
+
+def test_api_orders_returns_empty_list_when_no_orders_exist(client, db_session):
+    db_session.query(Fill).delete()
+    db_session.query(Order).delete()
+    db_session.query(Decision).delete()
+    db_session.query(AgentRun).delete()
+    db_session.flush()
+
+    response = client.get("/api/orders")
+
+    assert response.status_code == 200
+    assert response.json()["orders"] == []

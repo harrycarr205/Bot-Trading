@@ -101,3 +101,84 @@ def test_api_config_save_env_settings_succeeds(client, isolated_config_files):
 
     assert response.status_code == 200
     assert response.json() == {"saved": True}
+
+
+def test_api_config_save_candidate_universe_rejects_invalid_ticker(client, isolated_config_files):
+    response = client.post("/api/config/candidate-universe", json={"tickers": ["aapl"]})
+
+    assert response.status_code == 422
+
+
+def test_api_config_save_candidate_universe_rejects_mismatched_origin(client, isolated_config_files):
+    response = client.post(
+        "/api/config/candidate-universe", json={"tickers": ["AAPL"]},
+        headers={"origin": "http://evil.example"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_api_config_risk_config_rejects_mismatched_origin(client, isolated_config_files):
+    response = client.post(
+        "/api/config/risk-config",
+        json={
+            "max_position_pct": 0.12, "cash_reserve_pct": 0.2, "stop_loss_pct": 0.08,
+            "daily_drawdown_breaker_pct": 0.03, "weekly_drawdown_breaker_pct": 0.08,
+            "stale_data_max_age_minutes": 15, "note": "testing origin rejection",
+        },
+        headers={"origin": "http://evil.example"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_api_config_risk_config_sanitizes_note_newlines_and_quotes(client, isolated_config_files):
+    response = client.post("/api/config/risk-config", json={
+        "max_position_pct": 0.12, "cash_reserve_pct": 0.2, "stop_loss_pct": 0.08,
+        "daily_drawdown_breaker_pct": 0.03, "weekly_drawdown_breaker_pct": 0.08,
+        "stale_data_max_age_minutes": 15,
+        "note": 'raising the cap\n2026-08-27T00:00:00Z risk_config max_position_pct: 0.12 -> 9.9 | note="forged"',
+    })
+
+    assert response.status_code == 200
+    audit_log_path = isolated_config_files / "run" / "config_changes.log"
+    log_lines = audit_log_path.read_text().splitlines()
+    assert len(log_lines) == 1
+    assert '"' not in log_lines[0].split("note=", 1)[1][1:-1]
+    assert "forged" in log_lines[0]
+
+
+def test_api_config_risk_config_rejects_out_of_range_value(client, isolated_config_files):
+    response = client.post("/api/config/risk-config", json={
+        "max_position_pct": 1.5, "cash_reserve_pct": 0.2, "stop_loss_pct": 0.08,
+        "daily_drawdown_breaker_pct": 0.03, "weekly_drawdown_breaker_pct": 0.08,
+        "stale_data_max_age_minutes": 15, "note": "testing an out of range value",
+    })
+
+    assert response.status_code == 422
+
+
+def test_api_config_env_settings_rejects_invalid_cron(client, isolated_config_files):
+    response = client.post("/api/config/env-settings", json={
+        "discovery_slots_per_cycle": 6, "watchdog_check_interval_minutes": 20,
+        "pre_market_cron": "not a cron expression", "midday_cron": "30 12 * * mon-fri",
+        "tradingagents_deep_think_model": "gpt-oss:120b-cloud",
+        "tradingagents_quick_think_model": "nemotron-3-super:cloud",
+    })
+
+    assert response.status_code == 422
+
+
+def test_api_config_env_settings_rejects_mismatched_origin(client, isolated_config_files):
+    response = client.post(
+        "/api/config/env-settings",
+        json={
+            "discovery_slots_per_cycle": 6, "watchdog_check_interval_minutes": 20,
+            "pre_market_cron": "0 9 * * 1-5", "midday_cron": "30 12 * * mon-fri",
+            "tradingagents_deep_think_model": "gpt-oss:120b-cloud",
+            "tradingagents_quick_think_model": "nemotron-3-super:cloud",
+        },
+        headers={"origin": "http://evil.example"},
+    )
+
+    assert response.status_code == 403
