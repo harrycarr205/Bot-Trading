@@ -110,15 +110,22 @@ def test_api_config_save_candidate_universe_rejects_invalid_ticker(client, isola
 
 
 def test_api_config_save_candidate_universe_rejects_mismatched_origin(client, isolated_config_files):
+    candidate_path = isolated_config_files / "candidate_universe.yaml"
+    before = candidate_path.read_text()
+
     response = client.post(
         "/api/config/candidate-universe", json={"tickers": ["AAPL"]},
         headers={"origin": "http://evil.example"},
     )
 
     assert response.status_code == 403
+    assert candidate_path.read_text() == before
 
 
 def test_api_config_risk_config_rejects_mismatched_origin(client, isolated_config_files):
+    risk_path = isolated_config_files / "risk_config.yaml"
+    before = risk_path.read_text()
+
     response = client.post(
         "/api/config/risk-config",
         json={
@@ -130,6 +137,7 @@ def test_api_config_risk_config_rejects_mismatched_origin(client, isolated_confi
     )
 
     assert response.status_code == 403
+    assert risk_path.read_text() == before
 
 
 def test_api_config_risk_config_sanitizes_note_newlines_and_quotes(client, isolated_config_files):
@@ -170,6 +178,9 @@ def test_api_config_env_settings_rejects_invalid_cron(client, isolated_config_fi
 
 
 def test_api_config_env_settings_rejects_mismatched_origin(client, isolated_config_files):
+    env_path = isolated_config_files / ".env"
+    before = env_path.read_text()
+
     response = client.post(
         "/api/config/env-settings",
         json={
@@ -182,3 +193,4 @@ def test_api_config_env_settings_rejects_mismatched_origin(client, isolated_conf
     )
 
     assert response.status_code == 403
+    assert env_path.read_text() == before

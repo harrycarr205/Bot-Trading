@@ -191,6 +191,7 @@ def test_api_control_start_holds_lock_across_check_and_spawn(client, monkeypatch
 
     monkeypatch.setattr(process_control, "get_process_status", fake_get_status)
     monkeypatch.setattr(process_control, "spawn_detached", fake_spawn)
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: None)
 
     response = client.post("/api/control/scheduler/start")
 
