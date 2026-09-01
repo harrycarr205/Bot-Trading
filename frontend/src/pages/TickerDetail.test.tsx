@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import TickerDetail from "./TickerDetail";
@@ -22,6 +22,8 @@ describe("TickerDetail page", () => {
 
     expect(await screen.findByText("AAPL")).toBeInTheDocument();
     expect(api.ticker).toHaveBeenCalledWith("AAPL");
-    expect(screen.getAllByText("buy").length).toBeGreaterThan(0);
+    // Scope the assertion to the Decision History table (first table) to verify the decision column renders "buy"
+    const historyTable = screen.getAllByRole("table")[0];
+    expect(within(historyTable).getByText("buy")).toBeInTheDocument();
   });
 });
