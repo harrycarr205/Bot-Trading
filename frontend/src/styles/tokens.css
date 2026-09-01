@@ -1,0 +1,16 @@
+:root {
+  --void: #0A0A0B;
+  --panel: #131316;
+  --hairline: #2A2A2E;
+  --amber: #FF9F1C;
+  --gain: #3ECF6E;
+  --loss: #FF5C5C;
+  --ink: #E8E6E1;
+  --muted: #8A8A8F;
+
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", "Consolas", monospace;
+
+  --radius: 2px;
+}

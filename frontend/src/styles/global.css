@@ -1,0 +1,45 @@
+@import "./tokens.css";
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+h1, h2, h3, .label {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--amber);
+}
+
+.mono, table, .stat-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+a { color: var(--amber); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.gain { color: var(--gain); }
+.loss { color: var(--loss); }
+
+.flash-gain { animation: flash-gain 400ms ease-out; }
+.flash-loss { animation: flash-loss 400ms ease-out; }
+
+@keyframes flash-gain { from { background: rgba(62, 207, 110, 0.35); } to { background: transparent; } }
+@keyframes flash-loss { from { background: rgba(255, 92, 92, 0.35); } to { background: transparent; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-gain, .flash-loss { animation: none; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
