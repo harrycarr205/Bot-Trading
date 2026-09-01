@@ -34,7 +34,7 @@ export function usePolling<T>(
             loading: false,
           }));
       } finally {
-        if (!cancelled) timer = setTimeout(tick, intervalMs);
+        if (!cancelled && intervalMs > 0) timer = setTimeout(tick, intervalMs);
       }
     }
 
