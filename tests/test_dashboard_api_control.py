@@ -1,4 +1,75 @@
+import pytest
+
 from tradingsystem.orchestration import process_control
+
+
+@pytest.fixture
+def isolated_run_dir(tmp_path, monkeypatch):
+    """Points process_control.RUN_DIR at an empty tmp_path, so the log-tail
+    tests never read the real run/*.log files a live scheduler is writing.
+    Same pattern as tests/test_dashboard_api_config.py's isolated_config_files."""
+    monkeypatch.setattr(process_control, "RUN_DIR", tmp_path)
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=None, alive=False),
+    )
+    return tmp_path
+
+
+def test_api_control_status_returns_log_file_contents(client, isolated_run_dir):
+    (isolated_run_dir / "scheduler.log").write_text("2026-08-26 09:35:00 INFO cycle started\n")
+    (isolated_run_dir / "watchdog.log").write_text("2026-08-26 09:36:00 INFO watchdog check ok\n")
+    (isolated_run_dir / "run_once.log").write_text("2026-08-26 09:40:00 INFO off-cycle run started\n")
+
+    body = client.get("/api/control/status").json()
+
+    assert "cycle started" in body["scheduler_log"]
+    assert "watchdog check ok" in body["watchdog_log"]
+    assert "off-cycle run started" in body["run_once_log"]
+
+
+def test_api_control_status_returns_null_for_missing_log_files(client, isolated_run_dir):
+    response = client.get("/api/control/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scheduler_log"] is None
+    assert body["watchdog_log"] is None
+    assert body["run_once_log"] is None
+
+
+def test_api_control_status_tails_only_the_last_lines(client, isolated_run_dir):
+    (isolated_run_dir / "scheduler.log").write_text("\n".join(f"line {i}" for i in range(500)) + "\n")
+
+    scheduler_log = client.get("/api/control/status").json()["scheduler_log"]
+
+    lines = scheduler_log.splitlines()
+    assert len(lines) == 200
+    assert lines[0] == "line 300"
+    assert lines[-1] == "line 499"
+
+
+def test_api_control_start_reports_unconfirmed_when_process_never_reports_alive(client, monkeypatch):
+    """The spawn succeeded but the process never showed up in the poll window —
+    the operator must be told it is unconfirmed, not handed a bare success."""
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=None, alive=False),
+    )
+    monkeypatch.setattr(process_control, "spawn_detached", lambda module: -1)
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: None)
+    import tradingsystem.dashboard.routes.control as control_module
+    monkeypatch.setattr(control_module, "_START_POLL_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(control_module, "_START_POLL_ATTEMPTS", 2)
+
+    response = client.post("/api/control/scheduler/start")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "started": True,
+        "pid": None,
+        "note": "spawned but not yet confirmed alive — refresh shortly",
+    }
 
 
 def test_api_control_status_reports_alive_processes(client, monkeypatch):
