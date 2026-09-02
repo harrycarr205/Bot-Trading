@@ -82,10 +82,14 @@ src/tradingsystem/
     heartbeat.py, discord_alerts.py, memory_ingestion.py
   db/
     models.py, repositories.py, session.py, init_db.py, clear_breaker.py
-  dashboard/                    FastAPI + Jinja2 web UI (views + process control, config editing, order cancellation)
+  dashboard/                    FastAPI JSON API under /api/* + static serving of the built SPA
 config/
   risk_config.yaml              Risk numbers (position size, stop-loss, breakers) — edit freely
   candidate_universe.yaml        Discovery-screen candidate pool — edit freely, takes effect next cycle
+frontend/                       React + TypeScript dashboard SPA (Vite), the only UI — build with `npm run build`
+  src/pages/                     One file per view; src/panels/ holds the composable Overview widgets
+  src/api/                       Typed client + response types mirroring the JSON API
+  e2e/                           Playwright smoke tests (run against the trading_test database)
 tests/                          pytest, runs against a dedicated trading_test database
 docker-compose.yml               Postgres + pgvector
 ```
@@ -184,12 +188,17 @@ python -m tradingsystem.dashboard
 ```
 
 Serves `http://127.0.0.1:8787` by default (`DASHBOARD_HOST` /
-`DASHBOARD_PORT` in `.env`). Seven views: overview (latest snapshot,
-heartbeat, active breakers), decisions/journal, decision detail (full
-debate transcript), orders/fills (with per-order cancel), P&L, config
-(edit the candidate universe, risk config, and select `.env` settings),
-and control (start/stop the scheduler and watchdog, trigger an off-cycle
-run). Write capability spans process control (start/stop, off-cycle run),
+`DASHBOARD_PORT` in `.env`) — a React/TypeScript single-page app built
+from `frontend/`, talking to a FastAPI JSON API under `/api/*`. Nine
+views: overview (a drag/resize grid of panels — snapshot, heartbeat,
+active breakers, equity curve, positions, recent activity), positions &
+watchlist (live positions alongside the discovery candidate universe),
+ticker detail (a per-symbol drill-down that every ticker mention in the
+app links to), decisions/journal, decision detail (full debate
+transcript), orders/fills (with per-order cancel), P&L, config (edit the
+candidate universe, risk config, and select `.env` settings), and
+control (start/stop the scheduler and watchdog, trigger an off-cycle
+run, tail the three log files). Write capability spans process control (start/stop, off-cycle run),
 order cancellation, and config editing (candidate universe tickers, risk
 config fields, and a handful of env settings) — risk config edits require
 a justification note and are appended to `run/config_changes.log`. Every
