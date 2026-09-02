@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { Card } from "../components/Card";
@@ -42,8 +43,17 @@ export default function Pnl() {
       <Card title="Realized P&L">
         <DataTable<RealizedPnlOut>
           columns={[
-            { header: "Closed", render: (r) => new Date(r.closed_at).toLocaleString() },
-            { header: "Ticker", render: (r) => r.ticker },
+            {
+              header: "Closed",
+              // decision_ids is the ordered list of decisions that make up the
+              // closed round-trip; the first is the entry decision, which is the
+              // useful drill-down target. Plain text when the list is empty.
+              render: (r) =>
+                r.decision_ids.length > 0
+                  ? <Link to={`/decisions/${r.decision_ids[0]}`}>{new Date(r.closed_at).toLocaleString()}</Link>
+                  : new Date(r.closed_at).toLocaleString(),
+            },
+            { header: "Ticker", render: (r) => <Link to={`/ticker/${r.ticker}`}>{r.ticker}</Link> },
             { header: "Amount", render: (r) => <span className={r.pnl_amount >= 0 ? "gain" : "loss"}>{r.pnl_amount.toFixed(2)}</span> },
           ]}
           rows={pnl?.realized ?? []}
