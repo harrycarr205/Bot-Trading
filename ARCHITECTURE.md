@@ -198,40 +198,61 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
 - **Immediate alerts** on: circuit breaker trips, order rejections/API
   errors, scheduler heartbeat failure, and every trade placed (full
   visibility, not just failures).
-- **Simple dashboard** over the second brain — built 2026-08-25
-  (`src/tradingsystem/dashboard/`), on-demand (`python -m
-  tradingsystem.dashboard`), serves `127.0.0.1:8787` by default. Seven
-  views: overview (latest portfolio snapshot, scheduler heartbeat, active
-  circuit breakers), decisions/journal (filterable by ticker, includes
-  no-action days), decision detail (full ordered debate transcript),
-  orders/fills (with per-order cancel — added 2026-08-26), P&L history,
-  config (candidate universe, risk config, and select `.env` settings
-  editing — added 2026-08-26), and control (scheduler/watchdog start/stop,
-  off-cycle run trigger — added 2026-08-26). Write capability now spans
-  process control (start/stop, off-cycle run), order cancellation, and
-  config editing (candidate universe tickers, risk config fields, and a
-  handful of env settings); risk config edits require a justification
-  note and are appended to `run/config_changes.log` for audit. Circuit-
-  breaker clearing and the kill switch still remain outside the
-  dashboard. Circuit-breaker clearing has its own separate CLI instead
-  (`python -m tradingsystem.db.clear_breaker`), deliberately kept outside
-  the dashboard so a clear always requires a human-supplied name and
-  review note, never a button click. Every write route is protected by
-  a same-origin check (CSRF guard) — not full authentication; the
+- **Dashboard** over the second brain — rebuilt 2026-08-31/09-01 as a
+  React/TypeScript SPA (Vite build, `frontend/`) served by FastAPI
+  (`src/tradingsystem/dashboard/`) as static files (`frontend/dist/`,
+  built via `cd frontend && npm run build`) with an SPA fallback route,
+  plus a JSON API under `/api/*` that the old server-rendered Jinja2
+  templates were fully retired in favor of. Still on-demand (`python -m
+  tradingsystem.dashboard`), still `127.0.0.1:8787` by default — entry
+  point and port unchanged. Nine views now, not seven: the original
+  seven (overview, decisions/journal — filterable by ticker, includes
+  no-action days; decision detail with the full ordered debate
+  transcript; orders/fills with per-order cancel; P&L history; config —
+  candidate universe, risk config, and select `.env` settings editing;
+  and control — scheduler/watchdog start/stop, off-cycle run trigger)
+  plus two new ones: Positions & Watchlist (live positions from Alpaca
+  alongside the discovery candidate universe) and Ticker Detail (a
+  per-symbol drill-down — latest decision reasoning, decision history,
+  orders — that every ticker mention anywhere in the app now links to).
+  A ticker strip pinned to every page polls roughly every 10s for equity,
+  heartbeat freshness, and active breaker count; positions and equity
+  panels poll roughly every 30s; a past decision's transcript is fetched
+  once, since it's immutable, rather than polled. The Overview page is
+  composable rather than fixed: a panel registry (`frontend/src/panels/`)
+  feeds a drag/resize grid (`react-grid-layout`), with each viewer's
+  layout persisted to their own browser's `localStorage` — adding a new
+  Overview widget later is one new panel file, nothing else to touch.
+  Visual identity is deliberately Bloomberg-terminal-inspired: near-black
+  background, amber accent, monospace tabular figures for all numeric
+  data (design tokens in `frontend/src/styles/tokens.css`). See
+  `docs/superpowers/specs/2026-08-31-dashboard-redesign-design.md` for
+  the full design. Write capability still spans process control
+  (start/stop, off-cycle run), order cancellation, and config editing
+  (candidate universe tickers, risk config fields, and a handful of env
+  settings); risk config edits still require a justification note and
+  are appended to `run/config_changes.log` for audit. Circuit-breaker
+  clearing and the kill switch still remain outside the dashboard.
+  Circuit-breaker clearing has its own separate CLI instead (`python -m
+  tradingsystem.db.clear_breaker`), deliberately kept outside the
+  dashboard so a clear always requires a human-supplied name and review
+  note, never a button click. Every write route is still protected by a
+  same-origin check (CSRF guard) — not full authentication; the
   dashboard still has no authentication, on the same single-operator,
-  localhost-only reasoning as before — but that decision now carries more
-  weight than when the dashboard was purely read-only, since an
-  unauthenticated client on the machine can now start/stop the live
-  trading process, cancel orders, and edit risk config. Flagged as a
-  known trade-off, not resolved by this plan. Stopping honors an
+  localhost-only reasoning as before — but that decision still carries
+  more weight than when the dashboard was purely read-only, since an
+  unauthenticated client on the machine can start/stop the live trading
+  process, cancel orders, and edit risk config. Flagged as a known
+  trade-off, not resolved by this plan either. Stopping still honors an
   in-flight research cycle (finishes the current ticker, declines the
-  next); a stop that doesn't complete within 60s reports "still running"
-  rather than auto-killing — an explicit separate
-  Force Stop action is required to kill immediately, because a forced kill
-  mid-order-submission can orphan a live order at the broker with no local
-  record. `run/scheduler.log`, `run/watchdog.log`, and `run/run_once.log`
-  are the three log files under the gitignored `run/` directory, viewable
-  on the `/control` page.
+  next); a stop that doesn't complete within 60s still reports "still
+  running" rather than auto-killing — an explicit separate Force Stop
+  action is required to kill immediately, because a forced kill
+  mid-order-submission can orphan a live order at the broker with no
+  local record. `run/scheduler.log`, `run/watchdog.log`, and
+  `run/run_once.log` remain the three log files under the gitignored
+  `run/` directory, now viewable via a live-polling log tail on the
+  Control page instead of a static dump.
 
 ---
 

@@ -171,6 +171,14 @@ since the whole point is surviving that process's death.
 
 ### The dashboard (on demand)
 
+Build the frontend once (and again whenever `frontend/` changes):
+
+```powershell
+cd frontend && npm install && npm run build
+```
+
+Then, from the repo root:
+
 ```powershell
 python -m tradingsystem.dashboard
 ```
