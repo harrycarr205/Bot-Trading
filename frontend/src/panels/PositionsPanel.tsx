@@ -2,13 +2,17 @@ import { Link } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { DataTable } from "../components/DataTable";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { PositionOut } from "../api/types";
 import type { PanelDefinition } from "./types";
 
 const TITLE = "Positions";
 
 function PositionsPanel() {
-  const { data } = usePolling(api.positions, 30_000);
+  const { data, error, loading } = usePolling(api.positions, 30_000);
+  // A down /api/positions previously rendered "No open positions." —
+  // indistinguishable from a genuinely empty portfolio.
+  if (error) return <DataUnavailable title={TITLE} error={error} />;
   return (
     <div>
       <div className="label" style={{ fontSize: 11, marginBottom: 8 }}>{TITLE}</div>
@@ -22,6 +26,7 @@ function PositionsPanel() {
         rows={data?.positions ?? []}
         getRowKey={(p) => p.ticker}
         emptyMessage="No open positions."
+        loading={loading}
       />
     </div>
   );

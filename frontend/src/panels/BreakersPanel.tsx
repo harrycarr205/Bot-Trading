@@ -1,11 +1,15 @@
 import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { PanelDefinition } from "./types";
 
 const TITLE = "Circuit breakers";
 
 function BreakersPanel() {
-  const { data } = usePolling(api.overview, 10_000);
+  const { data, error } = usePolling(api.overview, 10_000);
+  // Safety-critical: a fetch failure must never render as "No active circuit
+  // breakers." — the reassuring message is the one thing it is not.
+  if (error) return <DataUnavailable title={TITLE} error={error} />;
   if (!data) return null;
   return (
     <div>

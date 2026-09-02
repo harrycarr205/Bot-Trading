@@ -1,12 +1,16 @@
 import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { StatusDot } from "../components/StatusDot";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { PanelDefinition } from "./types";
 
 const TITLE = "Heartbeat";
 
 function HeartbeatPanel() {
-  const { data } = usePolling(api.overview, 10_000);
+  const { data, error } = usePolling(api.overview, 10_000);
+  // Without this, a down /api/overview reads as "No heartbeat recorded yet." —
+  // indistinguishable from a scheduler that has genuinely never run.
+  if (error) return <DataUnavailable title={TITLE} error={error} />;
   return (
     <div>
       <div className="label" style={{ fontSize: 11, marginBottom: 8 }}>{TITLE}</div>

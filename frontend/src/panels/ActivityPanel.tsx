@@ -2,13 +2,15 @@ import { Link } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { DataTable } from "../components/DataTable";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { AgentRunSummary } from "../api/types";
 import type { PanelDefinition } from "./types";
 
 const TITLE = "Recent activity";
 
 function ActivityPanel() {
-  const { data } = usePolling(() => api.decisions(), 30_000);
+  const { data, error, loading } = usePolling(() => api.decisions(), 30_000);
+  if (error) return <DataUnavailable title={TITLE} error={error} />;
   const recent = (data?.runs ?? []).slice(0, 8);
   return (
     <div>
@@ -22,6 +24,7 @@ function ActivityPanel() {
         rows={recent}
         getRowKey={(r) => r.id}
         emptyMessage="No activity recorded yet."
+        loading={loading}
       />
     </div>
   );

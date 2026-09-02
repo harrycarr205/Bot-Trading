@@ -3,13 +3,14 @@ import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { Card } from "../components/Card";
 import { DataTable } from "../components/DataTable";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { AgentRunSummary, OrderOut } from "../api/types";
 
 export default function TickerDetail() {
   const { symbol = "" } = useParams();
-  const { data, error } = usePolling(() => api.ticker(symbol), 30_000);
+  const { data, error, loading } = usePolling(() => api.ticker(symbol), 30_000);
 
-  if (error) return <div className="loss">Data unavailable — {error.message}</div>;
+  if (error) return <DataUnavailable error={error} />;
 
   const latest = data?.runs[0];
 
@@ -33,6 +34,7 @@ export default function TickerDetail() {
           rows={data?.runs ?? []}
           getRowKey={(r) => r.id}
           emptyMessage="No decisions recorded for this ticker yet."
+          loading={loading}
         />
       </Card>
       <Card title="Orders">
@@ -47,6 +49,7 @@ export default function TickerDetail() {
           rows={data?.orders ?? []}
           getRowKey={(o) => o.id}
           emptyMessage="No orders recorded for this ticker yet."
+          loading={loading}
         />
       </Card>
     </div>

@@ -3,12 +3,13 @@ import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { Card } from "../components/Card";
 import { DataTable } from "../components/DataTable";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { CandidateOut, PositionOut } from "../api/types";
 
 export default function Positions() {
-  const { data, error } = usePolling(api.positions, 30_000);
+  const { data, error, loading } = usePolling(api.positions, 30_000);
 
-  if (error) return <div className="loss">Data unavailable — {error.message}</div>;
+  if (error) return <DataUnavailable error={error} />;
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -25,6 +26,7 @@ export default function Positions() {
           rows={data?.positions ?? []}
           getRowKey={(p) => p.ticker}
           emptyMessage="No open positions."
+          loading={loading}
         />
       </Card>
       <Card title="Candidate universe">
@@ -36,6 +38,7 @@ export default function Positions() {
           rows={data?.candidates ?? []}
           getRowKey={(c) => c.ticker}
           emptyMessage="No candidate tickers configured."
+          loading={loading}
         />
       </Card>
     </div>

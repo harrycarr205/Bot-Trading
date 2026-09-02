@@ -21,4 +21,12 @@ describe("TickerStrip", () => {
     expect(await screen.findByText(/102,340/)).toBeInTheDocument();
     expect(screen.getByText(/LIVE/i)).toBeInTheDocument();
   });
+
+  it("flags a failed overview fetch instead of silently rendering nothing", async () => {
+    vi.mocked(api.overview).mockRejectedValue(new Error("network down"));
+
+    render(<TickerStrip />);
+
+    expect(await screen.findByText("DATA UNAVAILABLE")).toBeInTheDocument();
+  });
 });

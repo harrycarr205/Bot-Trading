@@ -25,4 +25,13 @@ describe("BreakersPanel", () => {
 
     expect(await screen.findByText(/no active circuit breakers/i)).toBeInTheDocument();
   });
+
+  it("reports a fetch failure rather than the reassuring no-breakers message", async () => {
+    vi.mocked(api.overview).mockRejectedValue(new Error("503 Service Unavailable"));
+
+    render(<panel.Component />);
+
+    expect(await screen.findByText(/Data unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/no active circuit breakers/i)).not.toBeInTheDocument();
+  });
 });

@@ -3,13 +3,14 @@ import { Link } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { api } from "../api/client";
 import { DataTable } from "../components/DataTable";
+import { DataUnavailable } from "../components/DataUnavailable";
 import type { AgentRunSummary } from "../api/types";
 
 export default function Decisions() {
   const [ticker, setTicker] = useState("");
-  const { data, error } = usePolling(() => api.decisions(ticker || undefined), 30_000);
+  const { data, error, loading } = usePolling(() => api.decisions(ticker || undefined), 30_000);
 
-  if (error) return <div className="loss">Data unavailable — {error.message}</div>;
+  if (error) return <DataUnavailable error={error} />;
 
   return (
     <div>
@@ -32,6 +33,7 @@ export default function Decisions() {
         rows={data?.runs ?? []}
         getRowKey={(r) => r.id}
         emptyMessage="No agent runs recorded yet."
+        loading={loading}
       />
     </div>
   );
