@@ -116,7 +116,11 @@ export interface RealizedPnlOut {
   ticker: string;
   pnl_amount: number;
   closed_at: string;
+  /** Audit-trail decision ids stored on the row. */
   decision_ids: string[];
+  /** The agent runs those decisions belong to — the decision-detail route
+   *  (/decisions/:id) is keyed by agent-run id, so this is the linkable one. */
+  agent_run_ids: string[];
 }
 
 export interface PnlResponse {

@@ -138,7 +138,13 @@ class RealizedPnlOut(BaseModel):
     ticker: str
     pnl_amount: float
     closed_at: datetime.datetime
+    # The audit-trail decision ids stored on the row.
     decision_ids: list[uuid.UUID]
+    # The agent runs those decisions belong to, resolved by the route. The
+    # decision-detail view (/api/decisions/{agent_run_id} and the SPA's
+    # /decisions/:id) is keyed by agent-run id, not decision id — so this is the
+    # only id a "what reasoning closed this position?" link can actually target.
+    agent_run_ids: list[uuid.UUID] = []
 
 
 class PnlResponse(BaseModel):

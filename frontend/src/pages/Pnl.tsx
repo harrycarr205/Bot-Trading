@@ -45,12 +45,13 @@ export default function Pnl() {
           columns={[
             {
               header: "Closed",
-              // decision_ids is the ordered list of decisions that make up the
-              // closed round-trip; the first is the entry decision, which is the
-              // useful drill-down target. Plain text when the list is empty.
+              // Links to the first of the agent runs behind this closed
+              // round-trip. Not decision_ids: /decisions/:id is keyed by
+              // agent-run id, so linking a decision id would 404. Plain text
+              // when nothing resolved.
               render: (r) =>
-                r.decision_ids.length > 0
-                  ? <Link to={`/decisions/${r.decision_ids[0]}`}>{new Date(r.closed_at).toLocaleString()}</Link>
+                r.agent_run_ids.length > 0
+                  ? <Link to={`/decisions/${r.agent_run_ids[0]}`}>{new Date(r.closed_at).toLocaleString()}</Link>
                   : new Date(r.closed_at).toLocaleString(),
             },
             { header: "Ticker", render: (r) => <Link to={`/ticker/${r.ticker}`}>{r.ticker}</Link> },
