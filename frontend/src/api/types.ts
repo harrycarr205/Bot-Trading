@@ -146,6 +146,23 @@ export interface ControlStatusResponse {
   run_once_log: string | null;
 }
 
+/** POST /api/control/{name}/start and /api/control/run-now. */
+export interface ControlStartResult {
+  started: boolean;
+  pid: number | null;
+  /** Present when the process was spawned but never confirmed alive. */
+  note?: string;
+}
+
+/** POST /api/control/{name}/stop and /api/control/{name}/force-stop. */
+export interface ControlStopResult {
+  stopped: boolean;
+  forced: boolean;
+  /** Present when the stop timed out (carries the Force Stop safety warning)
+   *  or when the process was not running to begin with. */
+  note?: string;
+}
+
 export interface RiskConfigOut {
   max_position_pct: number;
   cash_reserve_pct: number;
@@ -159,4 +176,15 @@ export interface ConfigResponse {
   tickers: string[];
   risk_config: RiskConfigOut;
   env_values: Record<string, string | null>;
+}
+
+/** Body of POST /api/config/env-settings — mirrors EnvSettingsIn in
+ *  src/tradingsystem/dashboard/routes/config.py. */
+export interface EnvSettingsIn {
+  discovery_slots_per_cycle: number;
+  watchdog_check_interval_minutes: number;
+  pre_market_cron: string;
+  midday_cron: string;
+  tradingagents_deep_think_model: string;
+  tradingagents_quick_think_model: string;
 }

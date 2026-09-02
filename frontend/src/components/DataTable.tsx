@@ -8,9 +8,12 @@ interface DataTableProps<T> {
   rows: T[];
   getRowKey: (row: T) => string;
   emptyMessage: string;
+  /** True before the first fetch settles — shows a loading line instead of
+   *  emptyMessage, so "not fetched yet" never reads as "genuinely empty". */
+  loading?: boolean;
 }
 
-export function DataTable<T>({ columns, rows, getRowKey, emptyMessage }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, getRowKey, emptyMessage, loading = false }: DataTableProps<T>) {
   return (
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
@@ -24,7 +27,7 @@ export function DataTable<T>({ columns, rows, getRowKey, emptyMessage }: DataTab
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={columns.length} style={{ padding: 12, color: "var(--muted)" }}>{emptyMessage}</td></tr>
+          <tr><td colSpan={columns.length} style={{ padding: 12, color: "var(--muted)" }}>{loading ? "Loading…" : emptyMessage}</td></tr>
         ) : (
           rows.map((row) => (
             <tr key={getRowKey(row)}>

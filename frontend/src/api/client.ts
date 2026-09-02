@@ -10,6 +10,9 @@ import type {
   ConfigResponse,
   TickerDetailResponse,
   RiskConfigOut,
+  ControlStartResult,
+  ControlStopResult,
+  EnvSettingsIn,
 } from "./types";
 
 const BASE = "/api";
@@ -47,24 +50,12 @@ export const api = {
   pnlSeries: () => request<PnlSeriesResponse>("/pnl/series"),
   controlStatus: () => request<ControlStatusResponse>("/control/status"),
   controlStart: (name: "scheduler" | "watchdog") =>
-    request<{ started: boolean; pid: number | null; note?: string }>(
-      `/control/${name}/start`,
-      { method: "POST" }
-    ),
+    request<ControlStartResult>(`/control/${name}/start`, { method: "POST" }),
   controlStop: (name: "scheduler" | "watchdog") =>
-    request<{ stopped: boolean; forced: boolean; note?: string }>(
-      `/control/${name}/stop`,
-      { method: "POST" }
-    ),
+    request<ControlStopResult>(`/control/${name}/stop`, { method: "POST" }),
   controlForceStop: (name: "scheduler" | "watchdog") =>
-    request<{ stopped: boolean; forced: boolean }>(
-      `/control/${name}/force-stop`,
-      { method: "POST" }
-    ),
-  runNow: () =>
-    request<{ started: boolean; pid: number | null }>("/control/run-now", {
-      method: "POST",
-    }),
+    request<ControlStopResult>(`/control/${name}/force-stop`, { method: "POST" }),
+  runNow: () => request<ControlStartResult>("/control/run-now", { method: "POST" }),
   config: () => request<ConfigResponse>("/config"),
   saveCandidateUniverse: (tickers: string[]) =>
     request<{ saved: boolean }>("/config/candidate-universe", {
@@ -76,7 +67,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ...updates, note }),
     }),
-  saveEnvSettings: (updates: Record<string, string | number>) =>
+  saveEnvSettings: (updates: EnvSettingsIn) =>
     request<{ saved: boolean }>("/config/env-settings", {
       method: "POST",
       body: JSON.stringify(updates),

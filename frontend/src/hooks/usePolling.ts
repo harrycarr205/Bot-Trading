@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface PollingState<T> {
   data: T | null;
@@ -6,15 +6,24 @@ interface PollingState<T> {
   loading: boolean;
 }
 
+export interface Polling<T> extends PollingState<T> {
+  /** Re-runs the fetch immediately (and restarts the interval from now). */
+  refetch: () => void;
+}
+
 export function usePolling<T>(
   fetcher: () => Promise<T>,
   intervalMs: number
-): PollingState<T> {
+): Polling<T> {
   const [state, setState] = useState<PollingState<T>>({
     data: null,
     error: null,
     loading: true,
   });
+  // Bumped by refetch(); part of the effect's deps so a mutation can pull fresh
+  // data straight away instead of waiting out the remaining poll interval
+  // (and so a non-polling view, intervalMs === 0, can refresh at all).
+  const [reloadToken, setReloadToken] = useState(0);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
@@ -43,7 +52,9 @@ export function usePolling<T>(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [intervalMs]);
+  }, [intervalMs, reloadToken]);
 
-  return state;
+  const refetch = useCallback(() => setReloadToken((n) => n + 1), []);
+
+  return { ...state, refetch };
 }
