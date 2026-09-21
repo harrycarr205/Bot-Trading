@@ -185,6 +185,36 @@ cycles:
    to `1` in `src/tradingsystem/config.py` and note the outcome here rather
    than leaving the extra LLM cost with no evidence behind it.
 
+### Tool-usage audit finding (2026-09-03)
+
+Reading the pinned `tradingagents==0.3.1` source directly (not runtime
+behavior — a static wiring check) found:
+
+- `get_insider_transactions` **is** registered in the `"news"` `ToolNode`
+  (`tradingagents/graph/trading_graph.py:214`, alongside `get_news`,
+  `get_global_news`, `get_macro_indicators`, `get_prediction_markets`).
+- `get_insider_transactions` is **not** in `news_analyst.py`'s own `tools`
+  list (`tradingagents/agents/analysts/news_analyst.py:20-25`), which is
+  what actually gets passed to `llm.bind_tools(tools)`. The News Analyst's
+  LLM is therefore never offered `get_insider_transactions` as a callable
+  tool at all — it is not a reliability question (the model isn't failing
+  to call it; it structurally cannot), it's a gap in the pinned package.
+- `get_macro_indicators` and `get_prediction_markets` *are* both in
+  `news_analyst.py`'s `tools` list, so those two are reachable — whether the
+  model actually chooses to call them on a given run is what
+  `decision_engine/tool_audit.py`'s `ToolCallAuditCallback` (added
+  2026-09-03) now logs per `AgentRun`. Review those logs after a few weeks
+  of live cycles before concluding either way.
+
+**Fix for the `get_insider_transactions` gap is deliberately not implemented
+yet.** The only two paths are (a) patch
+`tradingagents.graph.setup.create_news_analyst` at import time in our own
+code — fragile against upstream changes, and a real behavior change to a
+pinned dependency happening outside its own version pin, or (b) fork/vendor
+the package. Given ARCHITECTURE.md's existing stance that risk-relevant
+config changes are deliberate decisions, not routine tuning, this is left as
+an open item for explicit sign-off rather than folded into this audit.
+
 ---
 
 ## 6. Scheduling & runtime architecture
