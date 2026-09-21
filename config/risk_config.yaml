@@ -14,3 +14,5 @@ weekly_drawdown_breaker_pct: 0.08  # auto-pause trading if weekly drawdown excee
 # deliberately no config knob for automated or agent-triggered reset.
 
 stale_data_max_age_minutes: 15  # reject a decision if underlying market data is older than this
+
+max_pct_of_adv: 0.10          # max order notional as a % of the ticker's average daily dollar volume

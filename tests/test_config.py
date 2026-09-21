@@ -35,3 +35,14 @@ def test_kelly_sizing_shadow_mode_defaults_true():
 
 def test_kelly_min_sample_size_default():
     assert Settings(_env_file=None).kelly_min_sample_size == 10
+
+
+def test_estimated_round_trip_cost_bps_default():
+    assert Settings(_env_file=None).estimated_round_trip_cost_bps == 10.0
+
+
+def test_load_risk_config_includes_max_pct_of_adv():
+    from tradingsystem.config import load_risk_config
+
+    risk_config = load_risk_config()
+    assert risk_config.max_pct_of_adv == 0.10

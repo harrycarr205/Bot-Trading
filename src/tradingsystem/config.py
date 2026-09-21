@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     # docs/superpowers/specs/2026-08-25-ticker-selection-design.md).
     discovery_slots_per_cycle: int = Field(default=4, ge=0)
 
+    # Idea #03 (trading frictions): a conservative flat estimate of round-trip
+    # transaction cost (spread + slippage) folded into every TradingAgents
+    # prompt via decision_engine/friction_context.py, so the model has to
+    # weigh it against expected edge. Alpaca equities are commission-free —
+    # this is NOT a measured spread feed, just a deliberately cautious
+    # constant. Revisit if it should vary by ticker/volatility later.
+    estimated_round_trip_cost_bps: float = 10.0
+
     # Idea #02 (fractional-Kelly sizing): shadow mode logs what Half-Kelly
     # would have sized alongside the existing flat 100%/50% split without
     # acting on it. Deliberately defaults True — cutover (False) is a later,
@@ -107,6 +115,7 @@ class RiskConfig(BaseModel):
     daily_drawdown_breaker_pct: float
     weekly_drawdown_breaker_pct: float
     stale_data_max_age_minutes: int
+    max_pct_of_adv: float
 
 
 class CandidateUniverseConfig(BaseModel):
