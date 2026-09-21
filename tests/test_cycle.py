@@ -13,7 +13,7 @@ class FakeAlpacaClient:
     def __init__(self, equity=100_000.0, cash=80_000.0, positions=None, open_orders=None,
                  market_status="open", price=100.0, price_overrides=None,
                  raise_on_price_for=None, submit_response=None, order_statuses=None,
-                 position_details=None):
+                 position_details=None, bars=None):
         self.equity = equity
         self.cash = cash
         self.positions = positions or {}
@@ -25,6 +25,7 @@ class FakeAlpacaClient:
         self.submit_response = submit_response
         self.order_statuses = order_statuses or {}
         self.position_details = position_details or []
+        self.bars = bars or {}
         self.submit_calls = []
 
     def get_account(self):
@@ -37,7 +38,7 @@ class FakeAlpacaClient:
         return self.position_details
 
     def get_recent_daily_bars(self, tickers, lookback_days):
-        return {}
+        return {t: self.bars[t] for t in tickers if t in self.bars}
 
     def get_open_orders(self):
         return self.open_orders
@@ -68,6 +69,7 @@ RISK_CONFIG = RiskConfig(
     daily_drawdown_breaker_pct=0.03,
     weekly_drawdown_breaker_pct=0.08,
     stale_data_max_age_minutes=15,
+    max_pct_of_adv=0.10,
 )
 
 WATCHLIST = ["AAPL", "MSFT"]
@@ -197,8 +199,10 @@ def test_buy_decision_sizes_and_places_order(db_session, monkeypatch):
     alerts = []
     monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
     from tradingsystem.execution.alpaca_client import SubmittedOrder
+    from tradingsystem.execution.alpaca_client import DailyBars
     client = FakeAlpacaClient(market_status="open", equity=100_000.0, price=100.0,
-                               submit_response=SubmittedOrder(alpaca_order_id="abc123", status="new"))
+                               submit_response=SubmittedOrder(alpaca_order_id="abc123", status="new"),
+                               bars={"AAPL": DailyBars(ticker="AAPL", closes=[100.0], volumes=[1_000_000.0])})
 
     cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
 
@@ -217,9 +221,11 @@ def test_one_ticker_exception_does_not_stop_the_others(db_session, monkeypatch):
     alerts = []
     monkeypatch.setattr(cycle.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
     from tradingsystem.execution.alpaca_client import SubmittedOrder
+    from tradingsystem.execution.alpaca_client import DailyBars
     client = FakeAlpacaClient(market_status="open", equity=100_000.0, price=100.0,
                                raise_on_price_for={"AAPL"},
-                               submit_response=SubmittedOrder(alpaca_order_id="xyz789", status="new"))
+                               submit_response=SubmittedOrder(alpaca_order_id="xyz789", status="new"),
+                               bars={"MSFT": DailyBars(ticker="MSFT", closes=[100.0], volumes=[1_000_000.0])})
 
     cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL", "MSFT"])
 
@@ -428,9 +434,10 @@ def test_buy_decision_logs_kelly_shadow_comparison_once_enough_history_exists(db
 
     ScriptedGraph.calls = [(make_final_state("Buy: strong fundamentals"), "Buy")]
     monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
-    from tradingsystem.execution.alpaca_client import SubmittedOrder
+    from tradingsystem.execution.alpaca_client import DailyBars, SubmittedOrder
     client = FakeAlpacaClient(market_status="open", equity=100_000.0, price=100.0,
-                               submit_response=SubmittedOrder(alpaca_order_id="kelly1", status="new"))
+                               submit_response=SubmittedOrder(alpaca_order_id="kelly1", status="new"),
+                               bars={"AAPL": DailyBars(ticker="AAPL", closes=[100.0], volumes=[1_000_000.0])})
 
     with caplog.at_level("INFO"):
         cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])

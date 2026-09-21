@@ -16,7 +16,7 @@ from tradingsystem.config import RiskConfig, Settings, load_candidate_universe, 
 from tradingsystem.db.models import AgentRun, Decision, PortfolioSnapshot
 from tradingsystem.db.repositories import get_active_breaker_event, get_realized_returns_by_rating, record_breaker_trip
 from tradingsystem.decision_engine.runner import run_research
-from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
+from tradingsystem.execution.alpaca_client import AlpacaClientProtocol, compute_average_daily_dollar_volume
 from tradingsystem.execution.executor import build_portfolio_state, place_order, sync_all_open_orders
 from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion, process_control, ticker_selection
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
@@ -158,6 +158,7 @@ def check_and_execute_stop_losses(
             session, alpaca_client, proposal, decision.id,
             settings.kill_switch_file, risk_config.max_position_pct,
             risk_config.cash_reserve_pct, risk_config.stale_data_max_age_minutes,
+            adv_notional=None, max_pct_of_adv=risk_config.max_pct_of_adv,
             now=now,
         )
         if exec_result.submitted:
@@ -268,10 +269,15 @@ def run_full_cycle(
                 kelly_shadow_mode=settings.kelly_sizing_shadow_mode,
             )
             if proposal is not None:
+                adv_bars = alpaca_client.get_recent_daily_bars([ticker], lookback_days=21)
+                adv_notional = (
+                    compute_average_daily_dollar_volume(adv_bars[ticker]) if ticker in adv_bars else None
+                )
                 exec_result = place_order(
                     session, alpaca_client, proposal, result.decision_id,
                     settings.kill_switch_file, risk_config.max_position_pct,
                     risk_config.cash_reserve_pct, risk_config.stale_data_max_age_minutes,
+                    adv_notional=adv_notional, max_pct_of_adv=risk_config.max_pct_of_adv,
                     now=datetime.datetime.utcnow(),
                 )
                 if exec_result.submitted:

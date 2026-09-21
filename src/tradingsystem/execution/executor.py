@@ -56,6 +56,8 @@ def place_order(
     max_position_pct: float,
     cash_reserve_pct: float,
     stale_data_max_age_minutes: int,
+    adv_notional: float | None,
+    max_pct_of_adv: float,
     now: datetime.datetime | None = None,
 ) -> ExecutionResult:
     if is_kill_switch_active(kill_switch_file):
@@ -73,6 +75,8 @@ def place_order(
         max_position_pct=max_position_pct,
         cash_reserve_pct=cash_reserve_pct,
         stale_data_max_age_minutes=stale_data_max_age_minutes,
+        adv_notional=adv_notional,
+        max_pct_of_adv=max_pct_of_adv,
     )
     if not result.approved:
         log.warning("order rejected for %s: %s", proposal.ticker, result.rejection_reasons)

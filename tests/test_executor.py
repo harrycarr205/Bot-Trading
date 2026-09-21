@@ -98,6 +98,8 @@ COMMON_KWARGS = dict(
     max_position_pct=0.10,
     cash_reserve_pct=0.20,
     stale_data_max_age_minutes=15,
+    adv_notional=1_000_000.0,
+    max_pct_of_adv=0.10,
 )
 
 
