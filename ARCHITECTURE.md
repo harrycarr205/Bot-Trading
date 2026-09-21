@@ -153,8 +153,8 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   the twice-daily/3-ticker cadence unattended — see
   `docs/superpowers/specs/2026-08-25-ollama-cloud-model-split-design.md`
   for the full evaluation.
-- `max_debate_rounds`: 1 (shallow, to validate the full pipeline end-to-end
-  first; can be increased once run time and quality are assessed).
+- `max_debate_rounds`: 2 (raised from 1 on 2026-09-03 as a tracked
+  experiment — see below; `max_risk_discuss_rounds` stays at 1).
 - Analysts: all four (fundamentals, sentiment, news, technical), equally
   weighted — TradingAgents' default full pipeline.
 - Run cadence: **twice daily per ticker**, pre-market and midday.
@@ -162,6 +162,28 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   schema validated, retried on malformed output, fails closed (no trade) on
   persistent ambiguity — per the brief's non-negotiable on tool-calling
   reliability, regardless of which model is configured.
+
+### Debate-rounds experiment (2026-09-03)
+
+`tradingagents_max_debate_rounds` raised 1 -> 2. This is a tracked
+experiment, not an assumed improvement — review after ~2 weeks of live
+cycles:
+
+1. Query recent `debate_transcripts` rows with `role IN ('bull_researcher', 'bear_researcher')`
+   grouped by `agent_run_id`, ordered by `created_at`. Each `agent_run_id`
+   should now show two bull entries and two bear entries instead of one.
+2. Read a sample of the second-round entries. Do they cite evidence not
+   already present in the first round (a new report section, a number, a
+   counter-argument), or do they mostly restate the first round in
+   different words?
+3. Cross-reference against `decisions.rating` for the same `agent_run_id`:
+   did any second-round argument actually flip the eventual rating versus
+   what round 1 alone was trending toward (visible in
+   `debate_transcripts.role = 'research_manager_judge'` content)?
+4. If the second round is consistently restating round 1 with no rating
+   impact after a reasonable sample, revert `tradingagents_max_debate_rounds`
+   to `1` in `src/tradingsystem/config.py` and note the outcome here rather
+   than leaving the extra LLM cost with no evidence behind it.
 
 ---
 
