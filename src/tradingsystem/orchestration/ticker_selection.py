@@ -10,7 +10,10 @@ and risk/circuit_breaker.py.
 
 from __future__ import annotations
 
+import datetime
 import logging
+
+import yfinance as yf
 
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol, DailyBars
 
@@ -117,5 +120,28 @@ def build_cycle_ticker_list(
 ) -> list[str]:
     held = {p.ticker for p in alpaca_client.get_position_details()}
     bars = alpaca_client.get_recent_daily_bars(candidate_universe, lookback_days)
-    ranked = rank_candidates(bars)
+    earnings_days = fetch_earnings_proximity_days(candidate_universe, datetime.date.today())
+    ranked = rank_candidates(bars, earnings_days)
     return select_tickers_for_cycle(held, ranked, discovery_slots)
+
+
+def fetch_earnings_proximity_days(
+    tickers: list[str], as_of: datetime.date
+) -> dict[str, int | None]:
+    """Best-effort days-until-next-earnings per ticker.
+
+    Fail-open per ticker, same pattern as TradingAgents' own
+    resolve_instrument_identity: a yfinance lookup failure, rate limit, or a
+    ticker with no calendar data returns None for that ticker rather than
+    raising, so one bad lookup never blocks the whole discovery screen.
+    """
+    result: dict[str, int | None] = {}
+    for ticker in tickers:
+        try:
+            calendar = yf.Ticker(ticker).calendar or {}
+            future_dates = [d for d in calendar.get("Earnings Date") or [] if d >= as_of]
+            result[ticker] = (min(future_dates) - as_of).days if future_dates else None
+        except Exception as exc:  # noqa: BLE001 - yfinance failures aren't consistently typed
+            log.warning("earnings-date lookup failed for %s: %s", ticker, exc)
+            result[ticker] = None
+    return result

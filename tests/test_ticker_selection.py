@@ -141,7 +141,12 @@ class FakeAlpacaClientForSelection:
         return {t: self.bars[t] for t in tickers if t in self.bars}
 
 
-def test_build_cycle_ticker_list_combines_held_and_discovery():
+def test_build_cycle_ticker_list_combines_held_and_discovery(monkeypatch):
+    import tradingsystem.orchestration.ticker_selection as ticker_selection_module
+
+    monkeypatch.setattr(
+        ticker_selection_module, "fetch_earnings_proximity_days", lambda tickers, as_of: {}
+    )
     client = FakeAlpacaClientForSelection(
         positions=[PositionDetail(ticker="AAPL", qty=10, avg_entry_price=100.0, current_price=110.0)],
         bars={
@@ -153,3 +158,77 @@ def test_build_cycle_ticker_list_combines_held_and_discovery():
     result = build_cycle_ticker_list(client, ["MSFT", "NVDA"], discovery_slots=1)
 
     assert result == ["AAPL", "MSFT"]  # AAPL held (uncapped); MSFT is the top-ranked discovery pick
+
+
+import datetime
+
+
+class _FakeCalendarTicker:
+    def __init__(self, calendar):
+        self._calendar = calendar
+
+    @property
+    def calendar(self):
+        if isinstance(self._calendar, Exception):
+            raise self._calendar
+        return self._calendar
+
+
+def test_fetch_earnings_proximity_days_computes_days_until_next_earnings(monkeypatch):
+    import tradingsystem.orchestration.ticker_selection as ticker_selection_module
+
+    as_of = datetime.date(2026, 1, 1)
+    fake_tickers = {
+        "AAPL": _FakeCalendarTicker({"Earnings Date": [datetime.date(2026, 1, 4)]}),
+        "MSFT": _FakeCalendarTicker({}),  # no calendar data available
+    }
+    monkeypatch.setattr(
+        ticker_selection_module.yf, "Ticker", lambda t: fake_tickers[t]
+    )
+
+    result = ticker_selection_module.fetch_earnings_proximity_days(["AAPL", "MSFT"], as_of)
+
+    assert result == {"AAPL": 3, "MSFT": None}
+
+
+def test_fetch_earnings_proximity_days_picks_the_nearest_future_date(monkeypatch):
+    import tradingsystem.orchestration.ticker_selection as ticker_selection_module
+
+    as_of = datetime.date(2026, 1, 1)
+    fake_ticker = _FakeCalendarTicker(
+        {"Earnings Date": [datetime.date(2026, 1, 10), datetime.date(2026, 1, 5)]}
+    )
+    monkeypatch.setattr(ticker_selection_module.yf, "Ticker", lambda t: fake_ticker)
+
+    result = ticker_selection_module.fetch_earnings_proximity_days(["AAPL"], as_of)
+
+    assert result == {"AAPL": 4}
+
+
+def test_fetch_earnings_proximity_days_ignores_past_dates(monkeypatch):
+    import tradingsystem.orchestration.ticker_selection as ticker_selection_module
+
+    as_of = datetime.date(2026, 1, 10)
+    fake_ticker = _FakeCalendarTicker({"Earnings Date": [datetime.date(2026, 1, 5)]})
+    monkeypatch.setattr(ticker_selection_module.yf, "Ticker", lambda t: fake_ticker)
+
+    result = ticker_selection_module.fetch_earnings_proximity_days(["AAPL"], as_of)
+
+    assert result == {"AAPL": None}
+
+
+def test_fetch_earnings_proximity_days_one_ticker_failure_does_not_block_others(monkeypatch):
+    import tradingsystem.orchestration.ticker_selection as ticker_selection_module
+
+    as_of = datetime.date(2026, 1, 1)
+    fake_tickers = {
+        "AAPL": _FakeCalendarTicker(RuntimeError("simulated yfinance failure")),
+        "MSFT": _FakeCalendarTicker({"Earnings Date": [datetime.date(2026, 1, 2)]}),
+    }
+    monkeypatch.setattr(
+        ticker_selection_module.yf, "Ticker", lambda t: fake_tickers[t]
+    )
+
+    result = ticker_selection_module.fetch_earnings_proximity_days(["AAPL", "MSFT"], as_of)
+
+    assert result == {"AAPL": None, "MSFT": 1}

@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "psutil>=5.9",
     "ruamel.yaml>=0.18",
+    "yfinance>=1.7",
     "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@v0.3.1",
 ]
 
