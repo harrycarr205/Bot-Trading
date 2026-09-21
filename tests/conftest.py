@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from tradingsystem.config import Settings
@@ -42,6 +42,25 @@ def db_session():
     transaction = connection.begin()
     factory = sessionmaker(bind=connection)
     session: Session = factory()
+
+    # Application code under test (e.g. orchestration/cycle.py's heartbeat
+    # and circuit-breaker writes) calls session.commit() directly. Session
+    # bound to an externally-managed Connection would otherwise end that
+    # Connection's real transaction on the first such commit, making the
+    # `transaction.rollback()` below a no-op and permanently leaking rows
+    # into trading_test for later tests to trip over. Nest inside a
+    # SAVEPOINT and reopen it every time it ends — SQLAlchemy's documented
+    # pattern for joining a Session into an external transaction for test
+    # suites — so every session.commit() ends only the SAVEPOINT, never the
+    # outer transaction.
+    nested = connection.begin_nested()
+
+    @event.listens_for(session, "after_transaction_end")
+    def _restart_savepoint(session, transaction):
+        nonlocal nested
+        if not nested.is_active:
+            nested = connection.begin_nested()
+
     try:
         yield session
     finally:
