@@ -36,8 +36,8 @@ class ScriptedGraph:
 
     calls = []
 
-    def __init__(self, debug=False, config=None):
-        pass
+    def __init__(self, debug=False, config=None, callbacks=None):
+        self.callbacks = callbacks or []
 
     def propagate(self, ticker, trade_date):
         outcome = ScriptedGraph.calls.pop(0)
@@ -112,3 +112,15 @@ def test_succeeds_on_second_attempt_after_one_failure(db_session, monkeypatch):
     assert result.ok
     assert result.rating == "Hold"
     assert result.decision == "hold"
+
+
+def test_logs_requested_tool_names_on_success(db_session, monkeypatch, caplog):
+    ScriptedGraph.calls = [(make_final_state(), "Buy")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+
+    settings = Settings(tradingagents_run_max_attempts=2)
+    with caplog.at_level("INFO", logger=runner_module.__name__):
+        result = run_research(db_session, "AAPL", "2026-01-05", market_status="open", settings=settings)
+
+    assert result.ok
+    assert any("tool calls requested for AAPL" in record.message for record in caplog.records)

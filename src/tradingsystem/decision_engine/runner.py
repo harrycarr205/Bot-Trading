@@ -22,6 +22,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingsystem.config import Settings
 from tradingsystem.db.models import AgentRun, DebateTranscript, Decision
 from tradingsystem.decision_engine.ta_config import build_ta_config
+from tradingsystem.decision_engine.tool_audit import ToolCallAuditCallback
 
 log = logging.getLogger(__name__)
 
@@ -95,8 +96,9 @@ def run_research(
 
     last_error: Exception | None = None
     for attempt in range(1, settings.tradingagents_run_max_attempts + 1):
+        tool_audit = ToolCallAuditCallback()
         try:
-            graph = TradingAgentsGraph(debug=False, config=config)
+            graph = TradingAgentsGraph(debug=False, config=config, callbacks=[tool_audit])
             final_state, rating = graph.propagate(ticker, trade_date)
         except Exception as exc:  # noqa: BLE001 - graph/langchain failures aren't consistently typed
             last_error = exc
@@ -110,6 +112,11 @@ def run_research(
                 ticker, attempt, rating,
             )
             continue
+
+        log.info(
+            "tool calls requested for %s (agent_run=%s): %s",
+            ticker, agent_run.id, sorted(set(tool_audit.requested_tool_names)),
+        )
 
         agent_run.finished_at = datetime.datetime.utcnow()
         agent_run.outcome = "decision_recorded"

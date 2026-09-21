@@ -101,7 +101,7 @@ def make_final_state(final_trade_decision="Buy: strong fundamentals"):
 class ScriptedGraph:
     calls = []
 
-    def __init__(self, debug=False, config=None):
+    def __init__(self, debug=False, config=None, callbacks=None):
         pass
 
     def propagate(self, ticker, trade_date):
