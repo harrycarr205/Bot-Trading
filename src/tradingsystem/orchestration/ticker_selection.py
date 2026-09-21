@@ -49,21 +49,50 @@ def compute_earnings_proximity_score(days_until: int | None, horizon_days: int =
     return float(days_until)
 
 
-def rank_candidates(bars_by_ticker: dict[str, DailyBars]) -> list[str]:
-    """Best-to-worst by composite rank: momentum rank + relative-volume rank,
-    both computed cross-sectionally across the tickers present this cycle.
+def rank_candidates(
+    bars_by_ticker: dict[str, DailyBars],
+    earnings_days_by_ticker: dict[str, int | None] | None = None,
+) -> list[str]:
+    """Best-to-worst by composite rank: momentum rank + relative-volume rank
+    (+ earnings-proximity rank, when earnings_days_by_ticker is supplied),
+    all computed cross-sectionally across the tickers present this cycle.
     Ties broken alphabetically for determinism.
+
+    earnings_days_by_ticker is optional and purely additive: omitting it (or
+    passing an empty dict) reproduces the original 2-factor ranking exactly.
+    It is not folded in as an always-present third dimension, because an
+    all-neutral score would still assign 0..n-1 ranks by alphabetical
+    tiebreak and perturb the composite even with zero real earnings signal.
     """
     momentum = {t: compute_momentum_pct(b.closes) for t, b in bars_by_ticker.items()}
     rel_vol = {t: compute_relative_volume(b.volumes) for t, b in bars_by_ticker.items()}
 
-    momentum_order = sorted(momentum, key=lambda t: (-momentum[t], t))
-    volume_order = sorted(rel_vol, key=lambda t: (-rel_vol[t], t))
-    momentum_rank = {t: i for i, t in enumerate(momentum_order)}
-    volume_rank = {t: i for i, t in enumerate(volume_order)}
+    momentum_rank = _dense_rank(momentum, descending=True)
+    volume_rank = _dense_rank(rel_vol, descending=True)
 
     composite = {t: momentum_rank[t] + volume_rank[t] for t in bars_by_ticker}
+
+    if earnings_days_by_ticker:
+        earnings_score = {
+            t: compute_earnings_proximity_score(earnings_days_by_ticker.get(t))
+            for t in bars_by_ticker
+        }
+        earnings_rank = _dense_rank(earnings_score, descending=False)
+        composite = {t: composite[t] + earnings_rank[t] for t in bars_by_ticker}
+
     return sorted(composite, key=lambda t: (composite[t], t))
+
+
+def _dense_rank(scores: dict[str, float], descending: bool) -> dict[str, int]:
+    """Same rank for equal scores (0-indexed) rather than each tied ticker
+    claiming a distinct sequential slot. A genuine tie must carry zero
+    differential into the composite score — alphabetical order is only the
+    final tiebreak applied to the composite sort (see rank_candidates), not
+    an accidental per-factor bias every tied pair would otherwise pick up.
+    """
+    unique_values = sorted(set(scores.values()), reverse=descending)
+    value_to_rank = {value: i for i, value in enumerate(unique_values)}
+    return {ticker: value_to_rank[value] for ticker, value in scores.items()}
 
 
 def select_tickers_for_cycle(

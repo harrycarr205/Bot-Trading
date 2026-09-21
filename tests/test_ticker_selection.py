@@ -69,6 +69,41 @@ def test_rank_candidates_ties_break_alphabetically():
     assert ranked == ["ALPHA", "ZETA"]
 
 
+def test_rank_candidates_without_earnings_data_matches_original_two_factor_ranking():
+    bars = {
+        "AAPL": DailyBars(ticker="AAPL", closes=[100.0, 110.0], volumes=[100.0, 100.0]),
+        "MSFT": DailyBars(ticker="MSFT", closes=[100.0, 100.0], volumes=[100.0, 100.0]),
+        "NVDA": DailyBars(ticker="NVDA", closes=[100.0, 90.0], volumes=[100.0, 100.0]),
+    }
+    # Omitting earnings_days_by_ticker entirely must reproduce the exact
+    # 2-factor result from test_rank_candidates_orders_best_first.
+    assert rank_candidates(bars) == ["AAPL", "MSFT", "NVDA"]
+    # An empty dict must behave identically to omitting it.
+    assert rank_candidates(bars, {}) == ["AAPL", "MSFT", "NVDA"]
+
+
+def test_rank_candidates_earnings_proximity_can_promote_a_momentum_laggard():
+    # MSFT and NVDA are momentum/volume-tied (both flat); NVDA has earnings
+    # tomorrow, MSFT has none scheduled — NVDA should rank ahead of MSFT.
+    bars = {
+        "MSFT": DailyBars(ticker="MSFT", closes=[100.0, 100.0], volumes=[100.0, 100.0]),
+        "NVDA": DailyBars(ticker="NVDA", closes=[100.0, 100.0], volumes=[100.0, 100.0]),
+    }
+    earnings_days = {"MSFT": None, "NVDA": 1}
+    assert rank_candidates(bars, earnings_days) == ["NVDA", "MSFT"]
+
+
+def test_rank_candidates_earnings_beyond_horizon_does_not_affect_tied_candidates():
+    bars = {
+        "MSFT": DailyBars(ticker="MSFT", closes=[100.0, 100.0], volumes=[100.0, 100.0]),
+        "NVDA": DailyBars(ticker="NVDA", closes=[100.0, 100.0], volumes=[100.0, 100.0]),
+    }
+    # Both beyond the 10-day horizon -> both collapse to the same neutral
+    # score -> falls through to the existing alphabetical tiebreak.
+    earnings_days = {"MSFT": 60, "NVDA": 90}
+    assert rank_candidates(bars, earnings_days) == ["MSFT", "NVDA"]
+
+
 def test_select_tickers_for_cycle_held_positions_are_uncapped():
     held = {"AAPL", "MSFT", "GOOGL", "META", "NVDA"}  # 5 held, more than discovery_slots
     ranked = ["XOM", "CVX"]
