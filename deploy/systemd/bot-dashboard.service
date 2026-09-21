@@ -1,0 +1,15 @@
+[Unit]
+Description=Bot-Trading dashboard (localhost-only, access via SSH tunnel)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/home/deploy/Bot-Trading
+ExecStart=/home/deploy/Bot-Trading/.venv/bin/python -m tradingsystem.dashboard
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
