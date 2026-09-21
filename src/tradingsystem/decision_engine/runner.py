@@ -19,10 +19,12 @@ import uuid
 from sqlalchemy.orm import Session
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
-from tradingsystem.config import Settings
+from tradingsystem.config import RiskConfig, Settings
 from tradingsystem.db.models import AgentRun, DebateTranscript, Decision
+from tradingsystem.decision_engine.friction_context import build_friction_note, wrap_resolve_instrument_context
 from tradingsystem.decision_engine.ta_config import build_ta_config
 from tradingsystem.decision_engine.tool_audit import ToolCallAuditCallback
+from tradingsystem.execution.alpaca_client import AlpacaClientProtocol, compute_average_daily_dollar_volume
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +77,8 @@ def run_research(
     ticker: str,
     trade_date: str,
     market_status: str,
+    alpaca_client: AlpacaClientProtocol,
+    risk_config: RiskConfig,
     run_type: str = "pre_market",
     settings: Settings | None = None,
 ) -> ResearchResult:
@@ -94,11 +98,25 @@ def run_research(
 
     config = build_ta_config(settings)
 
+    adv_bars = alpaca_client.get_recent_daily_bars([ticker], lookback_days=21)
+    adv_notional = compute_average_daily_dollar_volume(adv_bars[ticker]) if ticker in adv_bars else None
+    friction_note = build_friction_note(
+        round_trip_cost_bps=settings.estimated_round_trip_cost_bps,
+        adv_notional=adv_notional,
+        max_pct_of_adv=risk_config.max_pct_of_adv,
+    )
+
     last_error: Exception | None = None
     for attempt in range(1, settings.tradingagents_run_max_attempts + 1):
         tool_audit = ToolCallAuditCallback()
         try:
             graph = TradingAgentsGraph(debug=False, config=config, callbacks=[tool_audit])
+            if hasattr(graph, "resolve_instrument_context"):
+                # Test doubles (ScriptedGraph) don't implement this method —
+                # only the real TradingAgentsGraph and fakes that opt in do.
+                graph.resolve_instrument_context = wrap_resolve_instrument_context(
+                    graph.resolve_instrument_context, friction_note,
+                )
             final_state, rating = graph.propagate(ticker, trade_date)
         except Exception as exc:  # noqa: BLE001 - graph/langchain failures aren't consistently typed
             last_error = exc

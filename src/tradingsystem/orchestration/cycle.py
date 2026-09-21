@@ -245,7 +245,8 @@ def run_full_cycle(
         try:
             result = run_research(
                 session, ticker, trade_date=_ny_today().isoformat(),
-                market_status=market_status, run_type=run_type, settings=settings,
+                market_status=market_status, alpaca_client=alpaca_client, risk_config=risk_config,
+                run_type=run_type, settings=settings,
             )
             if record_heartbeat:
                 heartbeat.record_heartbeat(session, run_type, ticker=ticker)
