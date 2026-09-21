@@ -60,6 +60,19 @@ class DailyBars:
     volumes: list[float]  # oldest to newest, same ordering as closes
 
 
+def compute_average_daily_dollar_volume(bars: DailyBars) -> float:
+    """Average close*volume across the bars window — a liquidity proxy.
+
+    Same window/data as ticker_selection.py's momentum/volume screen; this is
+    the risk layer's independent read of it, not a shared cache (see the
+    trading-frictions plan's Global Constraints on why it's refetched).
+    """
+    if not bars.closes or not bars.volumes:
+        return 0.0
+    dollar_volumes = [c * v for c, v in zip(bars.closes, bars.volumes)]
+    return sum(dollar_volumes) / len(dollar_volumes)
+
+
 def round_to_tick(price: float) -> float:
     """Round to Alpaca's minimum price increment.
 

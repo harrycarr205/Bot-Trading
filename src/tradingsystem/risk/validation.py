@@ -126,6 +126,29 @@ def check_duplicate_order(proposal: OrderProposal, portfolio: PortfolioState) ->
     return CheckResult(True)
 
 
+def check_liquidity(
+    proposal: OrderProposal, adv_notional: float | None, max_pct_of_adv: float
+) -> CheckResult:
+    """Buy-side only, same pattern as check_position_size/check_exposure — an
+    exit (especially a stop-loss) must never be blocked by a liquidity check.
+    Fails closed if ADV data is unavailable or non-positive, consistent with
+    this module's stance on ambiguous input.
+    """
+    if proposal.side != "buy":
+        return CheckResult(True)
+    if adv_notional is None or adv_notional <= 0:
+        return CheckResult(False, "average daily dollar volume is unavailable or non-positive")
+    order_notional = proposal.qty * proposal.limit_price
+    resulting_pct_of_adv = order_notional / adv_notional
+    if resulting_pct_of_adv > max_pct_of_adv:
+        return CheckResult(
+            False,
+            f"order notional is {resulting_pct_of_adv:.2%} of average daily dollar volume, "
+            f"exceeds max_pct_of_adv {max_pct_of_adv:.2%}",
+        )
+    return CheckResult(True)
+
+
 def validate_order(
     proposal: OrderProposal,
     portfolio: PortfolioState,
@@ -134,6 +157,8 @@ def validate_order(
     max_position_pct: float,
     cash_reserve_pct: float,
     stale_data_max_age_minutes: int,
+    adv_notional: float | None,
+    max_pct_of_adv: float,
 ) -> OrderValidationResult:
     """Aggregate all checks. Approved only if every single check passes — fails closed."""
     checks = [
@@ -142,6 +167,7 @@ def validate_order(
         ("position_size", check_position_size(proposal, portfolio, max_position_pct)),
         ("cash_reserve", check_cash_reserve(proposal, portfolio, cash_reserve_pct)),
         ("exposure", check_exposure(proposal, portfolio, cash_reserve_pct)),
+        ("liquidity", check_liquidity(proposal, adv_notional, max_pct_of_adv)),
         ("stale_data", check_stale_data(proposal, now, stale_data_max_age_minutes)),
         ("duplicate_order", check_duplicate_order(proposal, portfolio)),
     ]

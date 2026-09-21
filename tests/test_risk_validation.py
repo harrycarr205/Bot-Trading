@@ -8,6 +8,7 @@ from tradingsystem.risk.validation import (
     check_cash_reserve,
     check_duplicate_order,
     check_exposure,
+    check_liquidity,
     check_market_status,
     check_order_type,
     check_position_size,
@@ -147,6 +148,8 @@ def test_validate_order_all_pass_is_approved():
         max_position_pct=0.10,
         cash_reserve_pct=0.20,
         stale_data_max_age_minutes=15,
+        adv_notional=1_000_000.0,
+        max_pct_of_adv=0.10,
     )
     assert result.approved
     assert result.rejection_reasons == []
@@ -163,6 +166,8 @@ def test_validate_order_single_failure_fails_closed():
         max_position_pct=0.10,
         cash_reserve_pct=0.20,
         stale_data_max_age_minutes=15,
+        adv_notional=1_000_000.0,
+        max_pct_of_adv=0.10,
     )
     assert not result.approved
     assert "order_type" in result.rejection_reasons
@@ -179,6 +184,46 @@ def test_validate_order_market_closed_fails_closed():
         max_position_pct=0.10,
         cash_reserve_pct=0.20,
         stale_data_max_age_minutes=15,
+        adv_notional=1_000_000.0,
+        max_pct_of_adv=0.10,
     )
     assert not result.approved
     assert "market_status" in result.rejection_reasons
+
+
+def test_liquidity_within_cap_passes():
+    proposal = make_proposal(qty=10, limit_price=100.0)  # $1,000 order
+    assert check_liquidity(proposal, adv_notional=100_000.0, max_pct_of_adv=0.10).passed  # 1% of ADV
+
+
+def test_liquidity_over_cap_fails():
+    proposal = make_proposal(qty=200, limit_price=100.0)  # $20,000 order
+    assert not check_liquidity(proposal, adv_notional=100_000.0, max_pct_of_adv=0.10).passed  # 20% of ADV
+
+
+def test_liquidity_missing_adv_fails_closed():
+    proposal = make_proposal()
+    assert not check_liquidity(proposal, adv_notional=None, max_pct_of_adv=0.10).passed
+
+
+def test_liquidity_zero_adv_fails_closed():
+    proposal = make_proposal()
+    assert not check_liquidity(proposal, adv_notional=0.0, max_pct_of_adv=0.10).passed
+
+
+def test_liquidity_sell_side_always_passes_even_with_no_adv_data():
+    # A stop-loss exit must never be blocked by a liquidity check.
+    proposal = make_proposal(side="sell", qty=1000, limit_price=100.0)
+    assert check_liquidity(proposal, adv_notional=None, max_pct_of_adv=0.10).passed
+
+
+def test_validate_order_now_requires_liquidity_check_to_pass():
+    proposal = make_proposal(qty=200, limit_price=100.0)  # 20% of the ADV below
+    portfolio = make_portfolio()
+    result = validate_order(
+        proposal, portfolio, market_status="open", now=NOW,
+        max_position_pct=0.50, cash_reserve_pct=0.20, stale_data_max_age_minutes=15,
+        adv_notional=100_000.0, max_pct_of_adv=0.10,
+    )
+    assert not result.approved
+    assert "liquidity" in result.rejection_reasons
