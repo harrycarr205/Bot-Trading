@@ -120,6 +120,12 @@ class RealizedPnl(Base):
     ticker: Mapped[str]
     decision_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)))
     pnl_amount: Mapped[float] = mapped_column(Numeric(14, 4))
+    # Cost-basis notional of the shares this row closed (avg_cost_basis *
+    # sell_qty from execution/realized_pnl.py) — needed to compute a %
+    # return (pnl_amount / entry_notional) for risk/kelly_sizing.py.
+    # Nullable: rows written before 2026-09-03 don't have it and are simply
+    # excluded from the Kelly win-rate/payoff-ratio calculation, never imputed.
+    entry_notional: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
     closed_at: Mapped[datetime.datetime]
 
 

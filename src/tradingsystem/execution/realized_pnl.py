@@ -24,6 +24,7 @@ class FillRecord:
 class RealizedPnlResult:
     pnl_amount: float
     decision_ids: list[uuid.UUID]
+    entry_notional: float
 
 
 def compute_realized_pnl(
@@ -66,5 +67,6 @@ def compute_realized_pnl(
 
     avg_cost_basis = period_buy_notional / period_buy_qty
     pnl_amount = (sell_price - avg_cost_basis) * sell_qty
+    entry_notional = avg_cost_basis * sell_qty
     decision_ids = sorted(period_decision_ids | {sell_decision_id}, key=str)
-    return RealizedPnlResult(pnl_amount=pnl_amount, decision_ids=decision_ids)
+    return RealizedPnlResult(pnl_amount=pnl_amount, decision_ids=decision_ids, entry_notional=entry_notional)

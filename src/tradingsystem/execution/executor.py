@@ -155,7 +155,8 @@ def sync_order_fills(session: Session, client: AlpacaClientProtocol, order: Orde
             if realized is not None:
                 session.add(RealizedPnl(
                     ticker=order.ticker, decision_ids=realized.decision_ids,
-                    pnl_amount=realized.pnl_amount, closed_at=status.filled_at,
+                    pnl_amount=realized.pnl_amount, entry_notional=realized.entry_notional,
+                    closed_at=status.filled_at,
                 ))
 
             session.flush()

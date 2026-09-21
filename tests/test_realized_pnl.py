@@ -36,6 +36,24 @@ def test_multiple_buys_use_weighted_average_cost():
     assert set(result.decision_ids) == {BUY_DECISION, BUY_DECISION_2, SELL_DECISION}
 
 
+def test_single_buy_full_sell_computes_entry_notional():
+    prior = [make_buy(100.0, 10)]
+    result = compute_realized_pnl(prior, sell_price=110.0, sell_qty=10, sell_decision_id=SELL_DECISION)
+    assert result.entry_notional == 1000.0  # avg cost basis 100.0 * 10 shares sold
+
+
+def test_multiple_buys_entry_notional_uses_weighted_average_cost():
+    prior = [make_buy(100.0, 10, decision_id=BUY_DECISION), make_buy(120.0, 10, decision_id=BUY_DECISION_2)]
+    result = compute_realized_pnl(prior, sell_price=115.0, sell_qty=20, sell_decision_id=SELL_DECISION)
+    assert result.entry_notional == 2200.0  # avg cost basis 110.0 * 20 shares sold
+
+
+def test_partial_sell_entry_notional_scales_with_sell_qty_not_full_position():
+    prior = [make_buy(100.0, 10)]
+    result = compute_realized_pnl(prior, sell_price=110.0, sell_qty=4, sell_decision_id=SELL_DECISION)
+    assert result.entry_notional == 400.0  # avg cost basis 100.0 * 4 shares sold (not all 10)
+
+
 def test_partial_sell_still_uses_full_period_average_and_position_stays_open():
     prior = [make_buy(100.0, 10)]
     result = compute_realized_pnl(prior, sell_price=110.0, sell_qty=4, sell_decision_id=SELL_DECISION)

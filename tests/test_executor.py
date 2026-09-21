@@ -235,6 +235,7 @@ def test_sell_fill_computes_and_persists_realized_pnl(db_session):
     assert realized.pnl_amount == 100.0  # (110 - 100) * 10
     assert set(realized.decision_ids) == {buy_decision_id, sell_decision_id}
     assert realized.closed_at == sell_filled_at
+    assert realized.entry_notional == 1000.0  # avg cost basis 100.0 * 10 shares sold
 
 
 def test_buy_fill_does_not_create_realized_pnl(db_session):
