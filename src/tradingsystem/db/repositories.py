@@ -10,7 +10,7 @@ import datetime
 
 from sqlalchemy.orm import Session
 
-from tradingsystem.db.models import CircuitBreakerEvent, Fill, Order
+from tradingsystem.db.models import CircuitBreakerEvent, Decision, Fill, Order, RealizedPnl
 
 
 def get_active_breaker_event(session: Session, breaker_type: str) -> CircuitBreakerEvent | None:
@@ -73,3 +73,36 @@ def clear_active_breaker(
         return None
     clear_breaker_event(session, event, cleared_by, review_note)
     return event
+
+
+def get_realized_returns_by_rating(
+    session: Session, since: datetime.datetime | None = None
+) -> dict[str, list[float]]:
+    """% return per closed round-trip, bucketed by entry rating (Buy/Overweight).
+
+    Used by risk/kelly_sizing.py's compute_half_kelly_target_fraction. Only
+    RealizedPnl rows with a non-null entry_notional are usable (rows written
+    before entry_notional existed are silently excluded, never imputed).
+
+    Simplification: RealizedPnl.decision_ids is stored sorted by UUID string
+    (execution/realized_pnl.py), not chronologically, so "the rating that
+    opened the position" isn't reliably recoverable — a round-trip whose
+    decision_ids include both a Buy- and an Overweight-rated decision
+    contributes its return to both buckets. Documented, not a bug.
+    """
+    query = session.query(RealizedPnl).filter(RealizedPnl.entry_notional.isnot(None))
+    if since is not None:
+        query = query.filter(RealizedPnl.closed_at >= since)
+    rows = query.all()
+
+    buckets: dict[str, list[float]] = {"Buy": [], "Overweight": []}
+    for row in rows:
+        pct_return = float(row.pnl_amount) / float(row.entry_notional)
+        entry_decisions = (
+            session.query(Decision)
+            .filter(Decision.id.in_(row.decision_ids), Decision.rating.in_(("Buy", "Overweight")))
+            .all()
+        )
+        for decision in entry_decisions:
+            buckets[decision.rating].append(pct_return)
+    return buckets
