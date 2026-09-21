@@ -35,6 +35,20 @@ def compute_relative_volume(volumes: list[float]) -> float:
     return volumes[-1] / avg_baseline
 
 
+def compute_earnings_proximity_score(days_until: int | None, horizon_days: int = 10) -> float:
+    """Lower score = more worth watching this cycle (closer to earnings).
+
+    None (no data), negative (a stale/unrefreshed past date), or beyond
+    horizon_days all collapse to the same neutral baseline — earnings
+    proximity is only a meaningful signal within a near-term window, and a
+    missing-data ticker should rank the same as a genuinely-distant one, not
+    be penalized or favored by an artifact of missing data.
+    """
+    if days_until is None or days_until < 0 or days_until > horizon_days:
+        return float(horizon_days)
+    return float(days_until)
+
+
 def rank_candidates(bars_by_ticker: dict[str, DailyBars]) -> list[str]:
     """Best-to-worst by composite rank: momentum rank + relative-volume rank,
     both computed cross-sectionally across the tickers present this cycle.

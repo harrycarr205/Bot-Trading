@@ -1,5 +1,6 @@
 from tradingsystem.execution.alpaca_client import DailyBars
 from tradingsystem.orchestration.ticker_selection import (
+    compute_earnings_proximity_score,
     compute_momentum_pct,
     compute_relative_volume,
     rank_candidates,
@@ -28,6 +29,25 @@ def test_compute_relative_volume_spike():
 def test_compute_relative_volume_insufficient_data_returns_neutral():
     assert compute_relative_volume([100.0]) == 1.0
     assert compute_relative_volume([]) == 1.0
+
+
+def test_compute_earnings_proximity_score_near_term_returns_days_until():
+    assert compute_earnings_proximity_score(3) == 3.0
+    assert compute_earnings_proximity_score(0) == 0.0
+
+
+def test_compute_earnings_proximity_score_none_returns_neutral_baseline():
+    assert compute_earnings_proximity_score(None, horizon_days=10) == 10.0
+
+
+def test_compute_earnings_proximity_score_beyond_horizon_returns_neutral_baseline():
+    assert compute_earnings_proximity_score(45, horizon_days=10) == 10.0
+
+
+def test_compute_earnings_proximity_score_negative_returns_neutral_baseline():
+    # A stale/already-passed date the calendar hasn't refreshed yet — treat as
+    # no usable signal rather than ranking it as maximally "close."
+    assert compute_earnings_proximity_score(-2, horizon_days=10) == 10.0
 
 
 def test_rank_candidates_orders_best_first():
