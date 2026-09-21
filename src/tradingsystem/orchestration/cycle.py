@@ -14,12 +14,13 @@ from sqlalchemy.orm import Session
 
 from tradingsystem.config import RiskConfig, Settings, load_candidate_universe, load_risk_config
 from tradingsystem.db.models import AgentRun, Decision, PortfolioSnapshot
-from tradingsystem.db.repositories import get_active_breaker_event, record_breaker_trip
+from tradingsystem.db.repositories import get_active_breaker_event, get_realized_returns_by_rating, record_breaker_trip
 from tradingsystem.decision_engine.runner import run_research
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol
 from tradingsystem.execution.executor import build_portfolio_state, place_order, sync_all_open_orders
 from tradingsystem.orchestration import discord_alerts, heartbeat, memory_ingestion, process_control, ticker_selection
 from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly_breaker
+from tradingsystem.risk.kelly_sizing import compute_half_kelly_target_fraction
 from tradingsystem.risk.position_sizing import size_order
 from tradingsystem.risk.stop_loss import is_stop_loss_triggered
 from tradingsystem.risk.validation import OrderProposal
@@ -195,6 +196,7 @@ def run_full_cycle(
     """
     settings = settings or Settings()
     risk_config = risk_config or load_risk_config()
+    returns_by_rating = get_realized_returns_by_rating(session)
 
     if record_heartbeat:
         heartbeat.record_heartbeat(session, run_type)
@@ -253,9 +255,17 @@ def run_full_cycle(
 
             portfolio = build_portfolio_state(alpaca_client)
             price = alpaca_client.get_latest_price(ticker)
+            kelly_target_fraction = None
+            if result.rating in ("Buy", "Overweight"):
+                kelly_target_fraction = compute_half_kelly_target_fraction(
+                    returns_by_rating.get(result.rating, []),
+                    min_sample_size=settings.kelly_min_sample_size,
+                )
             proposal = size_order(
                 result.rating, ticker, portfolio, price,
                 risk_config.max_position_pct, data_timestamp=datetime.datetime.utcnow(),
+                kelly_target_fraction=kelly_target_fraction,
+                kelly_shadow_mode=settings.kelly_sizing_shadow_mode,
             )
             if proposal is not None:
                 exec_result = place_order(

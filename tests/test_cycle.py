@@ -400,3 +400,42 @@ def test_record_heartbeat_false_skips_all_heartbeat_writes(db_session):
     )
 
     assert heartbeat.get_heartbeat(db_session) is None
+
+
+def test_buy_decision_logs_kelly_shadow_comparison_once_enough_history_exists(db_session, monkeypatch, caplog):
+    from tradingsystem.db.models import AgentRun as _AgentRun
+    from tradingsystem.db.models import Decision as _Decision
+    from tradingsystem.db.models import RealizedPnl as _RealizedPnl
+
+    # Seed 10 realized round-trips rated "Buy" — 6 wins @ +10%, 4 losses @
+    # -5% — enough to clear kelly_min_sample_size=10 (the Settings default).
+    for i in range(10):
+        run = _AgentRun(
+            ticker="AAPL", run_type="pre_market", started_at=datetime.datetime(2026, 1, 1),
+            finished_at=datetime.datetime(2026, 1, 1), market_status="open", outcome="decision_recorded",
+        )
+        db_session.add(run)
+        db_session.flush()
+        decision = _Decision(agent_run_id=run.id, rating="Buy", decision="buy", reasoning_summary="seed")
+        db_session.add(decision)
+        db_session.flush()
+        pnl = 100.0 if i < 6 else -50.0
+        db_session.add(_RealizedPnl(
+            ticker="AAPL", decision_ids=[decision.id], pnl_amount=pnl,
+            entry_notional=1000.0, closed_at=datetime.datetime(2026, 1, 2),
+        ))
+    db_session.flush()
+
+    ScriptedGraph.calls = [(make_final_state("Buy: strong fundamentals"), "Buy")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    from tradingsystem.execution.alpaca_client import SubmittedOrder
+    client = FakeAlpacaClient(market_status="open", equity=100_000.0, price=100.0,
+                               submit_response=SubmittedOrder(alpaca_order_id="kelly1", status="new"))
+
+    with caplog.at_level("INFO"):
+        cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
+
+    assert any("Kelly shadow sizing for AAPL Buy" in record.message for record in caplog.records)
+    # Shadow mode: the actual order still used flat sizing (100 shares), not
+    # the Kelly-derived alternative.
+    assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]

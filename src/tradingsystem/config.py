@@ -82,6 +82,18 @@ class Settings(BaseSettings):
     # docs/superpowers/specs/2026-08-25-ticker-selection-design.md).
     discovery_slots_per_cycle: int = Field(default=4, ge=0)
 
+    # Idea #02 (fractional-Kelly sizing): shadow mode logs what Half-Kelly
+    # would have sized alongside the existing flat 100%/50% split without
+    # acting on it. Deliberately defaults True — cutover (False) is a later,
+    # separate decision made once there's enough logged shadow data to
+    # compare against (see docs/superpowers/plans/2026-09-03-fractional-kelly-sizing.md).
+    kelly_sizing_shadow_mode: bool = True
+    # Minimum realized round-trips required in a rating's bucket before
+    # risk/kelly_sizing.py trusts a Half-Kelly estimate from it; below this,
+    # compute_half_kelly_target_fraction returns None and sizing falls back
+    # to the flat fraction regardless of shadow_mode.
+    kelly_min_sample_size: int = 10
+
     kill_switch_file: str = str(REPO_ROOT / "KILL_SWITCH")
 
     dashboard_host: str = "127.0.0.1"

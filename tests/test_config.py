@@ -27,3 +27,11 @@ def test_max_risk_discuss_rounds_unchanged_at_one():
     # rounds experiment plan (docs/superpowers/plans/2026-09-03-debate-rounds-experiment.md):
     # changing both at once would confound which knob caused any observed effect.
     assert Settings(_env_file=None).tradingagents_max_risk_discuss_rounds == 1
+
+
+def test_kelly_sizing_shadow_mode_defaults_true():
+    assert Settings(_env_file=None).kelly_sizing_shadow_mode is True
+
+
+def test_kelly_min_sample_size_default():
+    assert Settings(_env_file=None).kelly_min_sample_size == 10

@@ -84,6 +84,51 @@ def test_underweight_reduces_to_half_current_position():
     assert result.qty == 50
 
 
+def test_buy_with_kelly_data_in_shadow_mode_still_uses_flat_sizing():
+    portfolio = make_portfolio()
+    result = size_order(
+        "Buy", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10, data_timestamp=NOW,
+        kelly_target_fraction=0.2, kelly_shadow_mode=True,
+    )
+    # Flat sizing unchanged: target = 10% of 100,000 = 10,000 -> 100 shares,
+    # NOT the Kelly-derived 0.2 * 10% * 100,000 = 2,000 -> 20 shares.
+    assert result is not None
+    assert result.qty == 100
+
+
+def test_buy_with_kelly_data_and_shadow_mode_off_uses_kelly_fraction():
+    portfolio = make_portfolio()
+    result = size_order(
+        "Buy", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10, data_timestamp=NOW,
+        kelly_target_fraction=0.2, kelly_shadow_mode=False,
+    )
+    # target = 0.2 * 10% * 100,000 = 2,000 -> 20 shares
+    assert result is not None
+    assert result.qty == 20
+
+
+def test_buy_with_no_kelly_data_uses_flat_sizing_regardless_of_shadow_mode():
+    portfolio = make_portfolio()
+    result = size_order(
+        "Buy", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10, data_timestamp=NOW,
+        kelly_target_fraction=None, kelly_shadow_mode=False,
+    )
+    assert result is not None
+    assert result.qty == 100  # falls back to flat sizing — no Kelly estimate to use yet
+
+
+def test_underweight_ignores_kelly_target_fraction():
+    # Kelly only applies to entries — exits are untouched.
+    portfolio = make_portfolio(position_value_by_ticker={"AAPL": 10_000.0})
+    result = size_order(
+        "Underweight", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10, data_timestamp=NOW,
+        kelly_target_fraction=0.9, kelly_shadow_mode=False,
+    )
+    assert result is not None
+    assert result.side == "sell"
+    assert result.qty == 50  # unchanged from test_underweight_reduces_to_half_current_position
+
+
 def test_sell_with_no_position_does_nothing():
     portfolio = make_portfolio()
     result = size_order("Sell", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10, data_timestamp=NOW)
