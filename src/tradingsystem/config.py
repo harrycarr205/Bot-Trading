@@ -45,10 +45,15 @@ class Settings(BaseSettings):
     # in per role via .env with no code change.
     tradingagents_deep_think_model: str = "qwen2.5:7b-instruct"
     tradingagents_quick_think_model: str = "qwen2.5:7b-instruct"
-    # ARCHITECTURE.md §5: shallow, single-round debate to validate the
-    # pipeline end-to-end first. Not part of risk_config.yaml — that file is
-    # specifically the risk *validation* numbers, not decision-engine depth.
-    tradingagents_max_debate_rounds: int = 1
+    # Bumped from 1 -> 2 on 2026-09-03 as a tracked experiment (see
+    # docs/superpowers/plans/2026-09-03-debate-rounds-experiment.md): a second
+    # bull/bear round surfaced genuinely new evidence ~60% of the time in one
+    # practitioner's tuning, but a separate benchmark found more debate isn't
+    # automatically better decision quality. max_risk_discuss_rounds is
+    # deliberately left at 1 so this isolates one variable. Not part of
+    # risk_config.yaml — that file is specifically the risk *validation*
+    # numbers, not decision-engine depth.
+    tradingagents_max_debate_rounds: int = 2
     tradingagents_max_risk_discuss_rounds: int = 1
     # Outer retry budget around a whole TradingAgentsGraph.propagate() call,
     # separate from TradingAgents' own internal SDK-level llm_max_retries —
