@@ -215,6 +215,35 @@ the package. Given ARCHITECTURE.md's existing stance that risk-relevant
 config changes are deliberate decisions, not routine tuning, this is left as
 an open item for explicit sign-off rather than folded into this audit.
 
+### Trend cross-check experiment (2026-09-22)
+
+A dual moving-average crossover (`trend_check_short_ma_days` /
+`trend_check_long_ma_days`, default 9/50) now shadow-logs onto every
+non-Hold `Decision` row: `trend_signal` ("bullish"/"bearish"/"neutral")
+and `trend_agrees` (whether the crossover direction matches the LLM
+rating's implied direction). This does not affect sizing or order
+submission -- see
+`docs/superpowers/specs/2026-09-22-trend-cross-check-design.md` for the
+full design and rationale (built in response to the Alpha Audit's
+closing recommendation, published artifact
+`https://claude.ai/artifact/XpEv23wjPHuT4inhTkALFh`).
+
+Review after a few weeks of live cycles:
+
+1. Query `decisions` rows with `trend_agrees IS NOT NULL`, joined to
+   `realized_pnl` for closed round-trips (same `decision_ids` join
+   `get_realized_returns_by_rating` in `db/repositories.py` already uses).
+2. Compare realized % return (`pnl_amount / entry_notional`) where
+   `trend_agrees = True` vs. `trend_agrees = False`.
+3. If `trend_agrees = True` trades show a real, consistent edge after a
+   reasonable sample, that's the evidence needed to consider a follow-up
+   design that discounts position size on disagreement -- not something
+   this experiment does automatically.
+4. If there's no consistent difference, that's still a useful result:
+   this particular cross-check isn't adding information for this
+   system's tickers/cadence. Nothing downstream depends on it, so there
+   is nothing to revert either way.
+
 ---
 
 ## 6. Scheduling & runtime architecture
