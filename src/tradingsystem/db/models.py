@@ -54,6 +54,11 @@ class Decision(Base):
     rating: Mapped[str]
     decision: Mapped[str]  # collapsed 3-way bucket: "buy" | "sell" | "hold"
     reasoning_summary: Mapped[str]
+    # Independent trend cross-check (docs/superpowers/specs/2026-09-22-trend-cross-check-design.md).
+    # Nullable: only populated for non-Hold decisions with enough bar
+    # history; never imputed when missing.
+    trend_signal: Mapped[str | None]  # "bullish" | "bearish" | "neutral" | None
+    trend_agrees: Mapped[bool | None]
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.utcnow)
 
     agent_run: Mapped[AgentRun] = relationship(back_populates="decisions")

@@ -446,3 +446,44 @@ def test_buy_decision_logs_kelly_shadow_comparison_once_enough_history_exists(db
     # Shadow mode: the actual order still used flat sizing (100 shares), not
     # the Kelly-derived alternative.
     assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]
+
+
+def test_buy_decision_persists_trend_cross_check(db_session, monkeypatch):
+    ScriptedGraph.calls = [(make_final_state("Buy: strong fundamentals"), "Buy")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    from tradingsystem.execution.alpaca_client import DailyBars, SubmittedOrder
+
+    # 41 closes at 100.0 then 9 at 110.0: 50-day MA = 101.8, 9-day MA = 110.0
+    # -> 9dma clearly above 50dma -> "bullish", which agrees with a Buy rating.
+    closes = [100.0] * 41 + [110.0] * 9
+    client = FakeAlpacaClient(
+        market_status="open", equity=100_000.0, price=100.0,
+        submit_response=SubmittedOrder(alpaca_order_id="trend1", status="new"),
+        bars={"AAPL": DailyBars(ticker="AAPL", closes=closes, volumes=[1_000_000.0] * 50)},
+    )
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
+
+    decision = db_session.query(Decision).filter_by(decision="buy").one()
+    assert decision.trend_signal == "bullish"
+    assert decision.trend_agrees is True
+
+
+def test_buy_decision_with_insufficient_bar_history_leaves_trend_fields_none(db_session, monkeypatch):
+    ScriptedGraph.calls = [(make_final_state("Buy: strong fundamentals"), "Buy")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    from tradingsystem.execution.alpaca_client import DailyBars, SubmittedOrder
+
+    client = FakeAlpacaClient(
+        market_status="open", equity=100_000.0, price=100.0,
+        submit_response=SubmittedOrder(alpaca_order_id="trend2", status="new"),
+        bars={"AAPL": DailyBars(ticker="AAPL", closes=[100.0], volumes=[1_000_000.0])},
+    )
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
+
+    decision = db_session.query(Decision).filter_by(decision="buy").one()
+    assert decision.trend_signal is None
+    assert decision.trend_agrees is None
+    # The missing trend data never blocks or alters the trade itself.
+    assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]

@@ -46,3 +46,11 @@ def test_load_risk_config_includes_max_pct_of_adv():
 
     risk_config = load_risk_config()
     assert risk_config.max_pct_of_adv == 0.10
+
+
+def test_trend_check_short_ma_days_default():
+    assert Settings(_env_file=None).trend_check_short_ma_days == 9
+
+
+def test_trend_check_long_ma_days_default():
+    assert Settings(_env_file=None).trend_check_long_ma_days == 50

@@ -102,6 +102,14 @@ class Settings(BaseSettings):
     # to the flat fraction regardless of shadow_mode.
     kelly_min_sample_size: int = 10
 
+    # Independent trend cross-check (2026-09-22): shadow-logs whether a
+    # short/long moving-average crossover agrees with each Buy/Sell-
+    # direction decision's rating, on the Decision row. Logging only --
+    # does not affect sizing or order submission. See
+    # docs/superpowers/specs/2026-09-22-trend-cross-check-design.md.
+    trend_check_short_ma_days: int = 9
+    trend_check_long_ma_days: int = 50
+
     kill_switch_file: str = str(REPO_ROOT / "KILL_SWITCH")
 
     dashboard_host: str = "127.0.0.1"

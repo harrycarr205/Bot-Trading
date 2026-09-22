@@ -23,6 +23,7 @@ from tradingsystem.risk.circuit_breaker import check_daily_breaker, check_weekly
 from tradingsystem.risk.kelly_sizing import compute_half_kelly_target_fraction
 from tradingsystem.risk.position_sizing import size_order
 from tradingsystem.risk.stop_loss import is_stop_loss_triggered
+from tradingsystem.risk.trend_check import classify_trend, compute_moving_average, trend_agrees_with_rating
 from tradingsystem.risk.validation import OrderProposal
 
 log = logging.getLogger(__name__)
@@ -254,6 +255,19 @@ def run_full_cycle(
 
             if not result.ok or result.decision == "hold":
                 continue
+
+            trend_bars = alpaca_client.get_recent_daily_bars(
+                [ticker], lookback_days=settings.trend_check_long_ma_days
+            )
+            if ticker in trend_bars:
+                closes = trend_bars[ticker].closes
+                short_ma = compute_moving_average(closes, settings.trend_check_short_ma_days)
+                long_ma = compute_moving_average(closes, settings.trend_check_long_ma_days)
+                if short_ma is not None and long_ma is not None:
+                    trend = classify_trend(short_ma, long_ma)
+                    decision_row = session.get(Decision, result.decision_id)
+                    decision_row.trend_signal = trend
+                    decision_row.trend_agrees = trend_agrees_with_rating(result.rating, trend)
 
             portfolio = build_portfolio_state(alpaca_client)
             price = alpaca_client.get_latest_price(ticker)
