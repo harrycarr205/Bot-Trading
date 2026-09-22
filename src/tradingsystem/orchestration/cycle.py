@@ -256,9 +256,13 @@ def run_full_cycle(
             if not result.ok or result.decision == "hold":
                 continue
 
-            trend_bars = alpaca_client.get_recent_daily_bars(
-                [ticker], lookback_days=settings.trend_check_long_ma_days
-            )
+            try:
+                trend_bars = alpaca_client.get_recent_daily_bars(
+                    [ticker], lookback_days=settings.trend_check_long_ma_days
+                )
+            except Exception as exc:  # noqa: BLE001 - shadow logging must never cost a trade
+                log.warning("trend cross-check bars fetch failed for %s: %s", ticker, exc)
+                trend_bars = {}
             if ticker in trend_bars:
                 closes = trend_bars[ticker].closes
                 short_ma = compute_moving_average(closes, settings.trend_check_short_ma_days)

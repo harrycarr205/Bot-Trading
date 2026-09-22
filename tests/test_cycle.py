@@ -487,3 +487,35 @@ def test_buy_decision_with_insufficient_bar_history_leaves_trend_fields_none(db_
     assert decision.trend_agrees is None
     # The missing trend data never blocks or alters the trade itself.
     assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]
+
+
+def test_trend_check_bars_fetch_failure_does_not_block_the_trade(db_session, monkeypatch):
+    ScriptedGraph.calls = [(make_final_state("Buy: strong fundamentals"), "Buy")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+    from tradingsystem.execution.alpaca_client import DailyBars, SubmittedOrder
+
+    client = FakeAlpacaClient(
+        market_status="open", equity=100_000.0, price=100.0,
+        submit_response=SubmittedOrder(alpaca_order_id="trend3", status="new"),
+        bars={"AAPL": DailyBars(ticker="AAPL", closes=[100.0], volumes=[1_000_000.0])},
+    )
+    real_get_recent_daily_bars = client.get_recent_daily_bars
+
+    def _raise_only_for_trend_check(tickers, lookback_days):
+        # Trend check fetches with lookback_days=trend_check_long_ma_days (50);
+        # the later ADV/liquidity check fetches with lookback_days=21. Only
+        # the trend-check call should fail here, to isolate Fix 1's guard
+        # from the separate (pre-existing) ADV bars fetch.
+        if lookback_days == 50:
+            raise RuntimeError("simulated trend-check bars API failure")
+        return real_get_recent_daily_bars(tickers, lookback_days)
+
+    monkeypatch.setattr(client, "get_recent_daily_bars", _raise_only_for_trend_check)
+
+    cycle.run_full_cycle(db_session, client, "pre_market", risk_config=RISK_CONFIG, watchlist=["AAPL"])
+
+    decision = db_session.query(Decision).filter_by(decision="buy").one()
+    assert decision.trend_signal is None
+    assert decision.trend_agrees is None
+    # The bars-fetch failure must not block order placement.
+    assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]
