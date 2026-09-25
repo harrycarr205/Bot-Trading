@@ -57,7 +57,7 @@ cycle (as implemented, `orchestration/cycle.py`):
    journal entry and stop here.
 5. **Research stage** — TradingAgents runs its full pipeline (fundamentals,
    sentiment, news, technical analysts → bull/bear researchers → trader →
-   risk team → portfolio manager) via Ollama, 1 debate round. Produces a
+   risk team → portfolio manager) via Ollama, 2 debate rounds (§5). Produces a
    decision (5-tier rating, collapsed to BUY/SELL/HOLD) + reasoning + full
    debate transcript. Every structured output is schema-validated; malformed
    output triggers a retry, and persistent failure fails closed (no trade).
@@ -167,12 +167,33 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
 
 `tradingagents_max_debate_rounds` raised 1 -> 2. This is a tracked
 experiment, not an assumed improvement — review after ~2 weeks of live
-cycles:
+cycles.
 
-1. Query recent `debate_transcripts` rows with `role IN ('bull_researcher', 'bear_researcher')`
-   grouped by `agent_run_id`, ordered by `created_at`. Each `agent_run_id`
-   should now show two bull entries and two bear entries instead of one.
-2. Read a sample of the second-round entries. Do they cite evidence not
+**Review due ~2026-10-06, not ~09-17.** The droplet's database (§6) starts
+fresh on 2026-09-22 — the Windows-era history was not migrated — so the
+2-week window is counted from 09-22. There is also no pre-change (1-round)
+baseline in that database; the comparison is round 1 vs. round 2 *within*
+each run. Verified 2026-09-25: every run since 09-22 shows 2 bull and 2
+bear turns.
+
+1. Confirm two rounds actually ran. **Don't count `debate_transcripts`
+   rows** — `runner.py`'s `_persist_debate_transcript` stores one row per
+   role per run, holding TradingAgents' accumulated `bull_history` /
+   `bear_history` (every round, each turn prefixed `Bull Analyst:` /
+   `Bear Analyst:`), so row counts read 1/1 regardless of the setting.
+   Count turns inside the content instead:
+   ```sql
+   SELECT a.created_at::date AS day, count(*) AS runs,
+          round(avg(regexp_count(t.content, '(^|\n)Bull Analyst:')), 2) AS bull_turns,
+          round(avg(regexp_count(b.content, '(^|\n)Bear Analyst:')), 2) AS bear_turns
+   FROM agent_runs a
+   JOIN debate_transcripts t ON t.agent_run_id = a.id AND t.role = 'bull_researcher'
+   JOIN debate_transcripts b ON b.agent_run_id = a.id AND b.role = 'bear_researcher'
+   GROUP BY 1 ORDER BY 1;
+   ```
+   Split a single run's turns apart with
+   `unnest(regexp_split_to_array(content, '\nBull Analyst:')) WITH ORDINALITY`.
+2. Read a sample of the second-round turns. Do they cite evidence not
    already present in the first round (a new report section, a number, a
    counter-argument), or do they mostly restate the first round in
    different words?
@@ -267,19 +288,84 @@ Review after a few weeks of live cycles:
   in memory within one coherent process rather than reconstructed from
   external state on every cron invocation. Entry point: `python -m
   tradingsystem.orchestration.scheduler`.
-- Runs as a **standalone detached process** on this machine (Windows, RTX
-  4060 Ti), started manually and left running unattended — not a systemd
-  service (that assumed Linux; this box runs Windows). No auto-restart on
-  crash or reboot yet — an open gap, not a deliberate choice.
+- **Host: a DigitalOcean Basic droplet (Ubuntu 24.04), live since
+  2026-09-22.** Supersedes the original Windows desktop (RTX 4060 Ti),
+  where the scheduler ran as a manually-started detached process with no
+  auto-restart. The repo lives at `/home/deploy/Bot-Trading`, run as the
+  `deploy` user. Postgres runs in Docker (`docker-compose.yml`, container
+  `trading_postgres`); its data starts fresh on 2026-09-22 — the
+  Windows-era database was not migrated, so any review query over history
+  only sees droplet-era rows.
+- **Three systemd services** (`deploy/systemd/`): `bot-scheduler`,
+  `bot-watchdog`, `bot-dashboard`, each `Restart=on-failure` with a 10s
+  back-off, so a crash or reboot no longer needs a manual restart. Note
+  `on-failure` means a *clean* exit (exit 0 — e.g. after a stop request)
+  is **not** restarted; that's intentional, and what `deploy/update.sh`
+  relies on.
 - A second, independent **heartbeat watchdog** process (`python -m
   tradingsystem.orchestration.watchdog`) runs alongside the scheduler,
   checking every ~20 minutes (configurable) whether a cycle fired when the
   cron schedule says it should have, and alerting via Discord if not —
   necessary because nothing inside a dead or hung scheduler process can
   alert on its own failure.
-- Ollama still runs locally (`ollama serve`) as the proxy for Ollama Cloud
-  (§5) — actual inference now happens on Ollama's infrastructure, not this
-  machine's GPU, but the local daemon must still be running and signed in.
+- Ollama still runs locally on the droplet (`ollama serve`, at
+  `OLLAMA_BASE_URL`, default `localhost:11434`) as the proxy for Ollama
+  Cloud (§5) — all inference happens on Ollama's infrastructure, but the
+  local daemon must be running and signed in. It is not one of this repo's
+  systemd units.
+- **Memory: the droplet needs swap.** A 2GB swapfile (`vm.swappiness=10`)
+  was added 2026-09-25 after the Vite production build was OOM-killed with
+  Postgres + the three services resident. Without it, a memory spike can
+  also OOM-kill the scheduler or Postgres, not just a build.
+
+### Deploying updates
+
+Run `./deploy/update.sh` on the droplet as `deploy`. It:
+
+1. Refuses to run on a dirty working tree (never discard changes blindly —
+   inspect `git status` first; a rewritten `frontend/package-lock.json`
+   from a manual `npm install` is the usual culprit and is safe to
+   `git checkout --`).
+2. `git pull --ff-only`, then diffs against the last **fully deployed**
+   commit recorded in `run/deployed_commit` (not the pre-pull HEAD), so a
+   failed step is retried on re-run rather than reported "already up to
+   date". No marker → full deploy.
+3. Reinstalls Python deps if `pyproject.toml` changed (`pip install -e .`,
+   no dev extras) and rebuilds the frontend if `frontend/` changed
+   (`npm ci && npm run build` — `npm ci` never rewrites the lockfile).
+4. If `db/models.py` changed, shows the diff and blocks for confirmation:
+   **there is no Alembic**; `init_db.py` only creates missing tables, so
+   new/changed columns must be applied by hand with `ALTER TABLE` against
+   the live `trading` database before continuing.
+5. Stops the scheduler **cooperatively** via `run/scheduler.stop_requested`
+   (it finishes the ticker in progress, skips the rest of the cycle, exits
+   cleanly) rather than letting `systemctl restart`'s SIGTERM kill it
+   mid-order. Prefer deploying outside the 09:35 / 12:30 ET cycles.
+6. Restarts all three services, verifies each is active individually, and
+   only then writes `run/deployed_commit`.
+
+The droplet runs Node 18 (Ubuntu's apt default, EOL). The build works —
+Vite 5.4 supports it — but Playwright's `EBADENGINE` warnings on `npm ci`
+are expected until Node is upgraded to 20+.
+
+### Known gap: dashboard process control vs. systemd
+
+The dashboard's Start / Stop / Force Stop controls (§7) predate the
+droplet and don't compose with systemd:
+
+- **Start** calls `process_control.spawn_detached`, which passes Windows-only
+  `subprocess` creation flags — on Linux it fails. Even if it spawned, the
+  child would live in `bot-dashboard`'s cgroup and die with it, and it
+  would be a second scheduler outside systemd's knowledge.
+- **Stop** works (cooperative stop file → clean exit), but systemd then
+  leaves the scheduler down until someone runs
+  `sudo systemctl start bot-scheduler`.
+- **Force Stop** kills the PID, which systemd sees as a failure and
+  restarts 10s later — so it doesn't actually stop anything.
+
+Until the control routes are reworked to drive `systemctl`, use
+`systemctl` on the droplet for start/stop and treat the dashboard's
+Control page as read-only status + log tail.
 - Kill switch is an independent mechanism — not a flag the agent checks in
   its own loop — implemented as an external file check that the validation
   layer consults before every order, so a stuck/broken agent process can't
@@ -298,9 +384,11 @@ Review after a few weeks of live cycles:
   (`src/tradingsystem/dashboard/`) as static files (`frontend/dist/`,
   built via `cd frontend && npm run build`) with an SPA fallback route,
   plus a JSON API under `/api/*` that the old server-rendered Jinja2
-  templates were fully retired in favor of. Still on-demand (`python -m
-  tradingsystem.dashboard`), still `127.0.0.1:8787` by default — entry
-  point and port unchanged. Nine views now, not seven: the original
+  templates were fully retired in favor of. On the droplet it runs
+  continuously as the `bot-dashboard` systemd service (§6), still bound to
+  `127.0.0.1:8787` — never exposed publicly; reach it through an SSH tunnel
+  (`ssh -L 8787:127.0.0.1:8787 deploy@<droplet>`, then
+  `http://localhost:8787`). Nine views now, not seven: the original
   seven (overview, decisions/journal — filterable by ticker, includes
   no-action days; decision detail with the full ordered debate
   transcript; orders/fills with per-order cancel; P&L history; config —
@@ -334,7 +422,8 @@ Review after a few weeks of live cycles:
   note, never a button click. Every write route is still protected by a
   same-origin check (CSRF guard) — not full authentication; the
   dashboard still has no authentication, on the same single-operator,
-  localhost-only reasoning as before — but that decision still carries
+  localhost-only reasoning as before (on the droplet, "localhost" means
+  only someone who can already SSH in as `deploy` can reach it) — but that decision still carries
   more weight than when the dashboard was purely read-only, since an
   unauthenticated client on the machine can start/stop the live trading
   process, cancel orders, and edit risk config. Flagged as a known
@@ -347,7 +436,10 @@ Review after a few weeks of live cycles:
   local record. `run/scheduler.log`, `run/watchdog.log`, and
   `run/run_once.log` remain the three log files under the gitignored
   `run/` directory, now viewable via a live-polling log tail on the
-  Control page instead of a static dump.
+  Control page instead of a static dump (stdout/stderr also go to the
+  journal: `journalctl -u bot-scheduler`). On the droplet, the Control
+  page's start/stop buttons don't work correctly under systemd — see
+  "Known gap: dashboard process control vs. systemd" in §6.
 
 ---
 
@@ -425,10 +517,12 @@ Review after a few weeks of live cycles:
 ## 10. What this document does NOT cover yet
 
 Implementation details (exact file/module layout, TradingAgents
-integration specifics, Alpaca SDK usage, Postgres schema DDL, systemd unit
-files, Discord webhook payload format, dashboard tech choice) are
-deliberately left for the implementation phase, once this architecture is
-signed off.
+integration specifics, Alpaca SDK usage, Postgres schema DDL, Discord
+webhook payload format) are deliberately left to the code itself. The
+dashboard stack is described in §7, and the droplet deployment (systemd
+units in `deploy/systemd/`, `deploy/update.sh`) in §6. Not yet covered
+anywhere: schema migrations (there is no Alembic; see §6 "Deploying
+updates") and a from-scratch droplet provisioning runbook.
 
 ---
 
