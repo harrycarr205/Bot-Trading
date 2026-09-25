@@ -22,6 +22,16 @@ _START_POLL_ATTEMPTS = 6  # ~3 seconds total
 _start_lock = threading.Lock()
 
 
+def _systemctl_or_500(action, *args, **kwargs) -> None:
+    """Runs a process_control.systemctl_* call, turning a failed sudo/systemctl
+    into a 500 carrying its stderr, so the Control page shows why (typically
+    deploy/sudoers/bot-trading not installed) instead of a false success."""
+    try:
+        action(*args, **kwargs)
+    except process_control.SystemctlError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 def _tail_log(name: str, lines: int = 200) -> str | None:
     log_path = process_control.RUN_DIR / f"{name}.log"
     if not log_path.exists():
@@ -52,7 +62,10 @@ def start_process(name: str, _: None = Depends(require_same_origin)):
             raise HTTPException(status_code=409, detail=f"{name} is already running")
 
         process_control.clear_stop_request(name)
-        process_control.spawn_detached(name)
+        if process_control.running_under_systemd():
+            _systemctl_or_500(process_control.systemctl_start, name)
+        else:
+            process_control.spawn_detached(name)
         for _ in range(_START_POLL_ATTEMPTS):
             time.sleep(_START_POLL_INTERVAL_SECONDS)
             status = process_control.get_process_status(name)
@@ -100,7 +113,12 @@ def force_stop_process(name: str, _: None = Depends(require_same_origin)):
         process_control.clear_stop_request(name)
         return {"stopped": True, "forced": False, "note": "was not running"}
 
-    process_control.force_kill(status.pid)
+    if process_control.running_under_systemd():
+        # A bare kill would just be restarted by Restart=on-failure; stopping
+        # the unit is what actually keeps it down.
+        _systemctl_or_500(process_control.systemctl_stop, name)
+    else:
+        process_control.force_kill(status.pid)
     process_control.remove_pidfile(name)
     process_control.clear_stop_request(name)
     return {"stopped": True, "forced": True}
@@ -108,5 +126,11 @@ def force_stop_process(name: str, _: None = Depends(require_same_origin)):
 
 @router.post("/control/run-now")
 def run_now(_: None = Depends(require_same_origin)):
+    if process_control.running_under_systemd():
+        # --no-block: the oneshot unit's start job otherwise waits for the whole
+        # research run. A second press while one is running joins that job
+        # rather than starting a parallel run.
+        _systemctl_or_500(process_control.systemctl_start, "run_once", block=False)
+        return {"started": True, "pid": None}
     pid = process_control.spawn_detached("run_once")
     return {"started": True, "pid": pid}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Bot-Trading off-cycle research run (the dashboard's Run now button)
+After=network-online.target docker.service
+Wants=network-online.target
+
+# Oneshot, never enabled (no [Install]): started on demand by the dashboard via
+# `sudo -n systemctl start --no-block bot-run-once`. Running as its own unit
+# rather than a child of bot-dashboard means a dashboard restart (e.g. from
+# deploy/update.sh) can't kill a run mid-order, and a second start while one
+# is in progress joins the existing job instead of launching a parallel run.
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/home/deploy/Bot-Trading
+ExecStart=/home/deploy/Bot-Trading/.venv/bin/python -m tradingsystem.orchestration.run_once

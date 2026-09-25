@@ -296,7 +296,7 @@ Review after a few weeks of live cycles:
   `trading_postgres`); its data starts fresh on 2026-09-22 — the
   Windows-era database was not migrated, so any review query over history
   only sees droplet-era rows.
-- **Three systemd services** (`deploy/systemd/`): `bot-scheduler`,
+- **Three long-running systemd services** (`deploy/systemd/`): `bot-scheduler`,
   `bot-watchdog`, `bot-dashboard`, each `Restart=on-failure` with a 10s
   back-off, so a crash or reboot no longer needs a manual restart. Note
   `on-failure` means a *clean* exit (exit 0 — e.g. after a stop request)
@@ -317,6 +317,10 @@ Review after a few weeks of live cycles:
   was added 2026-09-25 after the Vite production build was OOM-killed with
   Postgres + the three services resident. Without it, a memory spike can
   also OOM-kill the scheduler or Postgres, not just a build.
+- Kill switch is an independent mechanism — not a flag the agent checks in
+  its own loop — implemented as an external file check that the validation
+  layer consults before every order, so a stuck/broken agent process can't
+  bypass it.
 
 ### Deploying updates
 
@@ -348,28 +352,39 @@ The droplet runs Node 18 (Ubuntu's apt default, EOL). The build works —
 Vite 5.4 supports it — but Playwright's `EBADENGINE` warnings on `npm ci`
 are expected until Node is upgraded to 20+.
 
-### Known gap: dashboard process control vs. systemd
+### Dashboard process control under systemd
 
-The dashboard's Start / Stop / Force Stop controls (§7) predate the
-droplet and don't compose with systemd:
+The dashboard's Control page (§7) detects systemd (`INVOCATION_ID`, which
+systemd sets for every unit) and drives `systemctl` instead of spawning or
+killing PIDs itself — on the Windows dev box it keeps the original
+detached-spawn behavior:
 
-- **Start** calls `process_control.spawn_detached`, which passes Windows-only
-  `subprocess` creation flags — on Linux it fails. Even if it spawned, the
-  child would live in `bot-dashboard`'s cgroup and die with it, and it
-  would be a second scheduler outside systemd's knowledge.
-- **Stop** works (cooperative stop file → clean exit), but systemd then
-  leaves the scheduler down until someone runs
-  `sudo systemctl start bot-scheduler`.
-- **Force Stop** kills the PID, which systemd sees as a failure and
-  restarts 10s later — so it doesn't actually stop anything.
+- **Start** → `sudo -n systemctl start bot-<name>`, then polls the pidfile.
+- **Stop** → unchanged: the cooperative stop-request file. The process
+  finishes its current ticker and exits 0, which `Restart=on-failure`
+  leaves stopped until Start is pressed.
+- **Force Stop** → `sudo -n systemctl stop bot-<name>` (SIGTERM, then
+  SIGKILL after systemd's stop timeout). A bare PID kill would just be
+  restarted 10s later. Same orphaned-order caveat as always (§7).
+- **Run now** → `sudo -n systemctl start --no-block bot-run-once`, a
+  oneshot unit (`deploy/systemd/bot-run-once.service`, never enabled). It
+  runs in its own cgroup, so restarting the dashboard can't kill it, and a
+  second press while one is running joins that run rather than starting
+  another.
 
-Until the control routes are reworked to drive `systemctl`, use
-`systemctl` on the droplet for start/stop and treat the dashboard's
-Control page as read-only status + log tail.
-- Kill switch is an independent mechanism — not a flag the agent checks in
-  its own loop — implemented as an external file check that the validation
-  layer consults before every order, so a stuck/broken agent process can't
-  bypass it.
+`deploy` gets exactly those five commands passwordless via
+`deploy/sudoers/bot-trading` — nothing broader. If sudo refuses (file not
+installed, argv drift between the file and `process_control.py`), the
+route returns a 500 carrying sudo's error rather than a false success.
+
+One-time install on the droplet:
+```bash
+cd ~/Bot-Trading
+sudo cp deploy/systemd/bot-run-once.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo visudo -cf deploy/sudoers/bot-trading && \
+  sudo install -m 0440 -o root -g root deploy/sudoers/bot-trading /etc/sudoers.d/bot-trading
+```
 
 ---
 
@@ -437,9 +452,9 @@ Control page as read-only status + log tail.
   `run/run_once.log` remain the three log files under the gitignored
   `run/` directory, now viewable via a live-polling log tail on the
   Control page instead of a static dump (stdout/stderr also go to the
-  journal: `journalctl -u bot-scheduler`). On the droplet, the Control
-  page's start/stop buttons don't work correctly under systemd — see
-  "Known gap: dashboard process control vs. systemd" in §6.
+  journal: `journalctl -u bot-scheduler`). On the droplet the Control
+  page's buttons drive `systemctl` — see "Dashboard process control under
+  systemd" in §6.
 
 ---
 

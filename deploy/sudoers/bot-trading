@@ -1,0 +1,18 @@
+# Lets the dashboard (bot-dashboard, running as `deploy`) start/stop its own
+# systemd units and nothing else. The argv must match exactly what
+# src/tradingsystem/orchestration/process_control.py's systemctl_* helpers run.
+#
+# Install on the droplet (validate first -- a broken sudoers file locks out sudo):
+#   sudo visudo -cf deploy/sudoers/bot-trading
+#   sudo install -m 0440 -o root -g root deploy/sudoers/bot-trading /etc/sudoers.d/bot-trading
+#
+# No '.' or '~' in the installed filename: sudo silently ignores such files.
+
+Cmnd_Alias BOT_TRADING_CONTROL = \
+    /usr/bin/systemctl start bot-scheduler, \
+    /usr/bin/systemctl stop bot-scheduler, \
+    /usr/bin/systemctl start bot-watchdog, \
+    /usr/bin/systemctl stop bot-watchdog, \
+    /usr/bin/systemctl start --no-block bot-run-once
+
+deploy ALL=(root) NOPASSWD: BOT_TRADING_CONTROL

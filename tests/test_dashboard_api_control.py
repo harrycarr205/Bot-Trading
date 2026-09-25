@@ -3,6 +3,36 @@ import pytest
 from tradingsystem.orchestration import process_control
 
 
+@pytest.fixture(autouse=True)
+def _not_under_systemd(monkeypatch):
+    """Existing tests exercise the detached-spawn (dev box) path; make sure a
+    test run that happens to be launched by systemd doesn't flip them onto
+    the systemctl path. The systemd tests below opt in explicitly."""
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+
+
+@pytest.fixture
+def under_systemd(monkeypatch):
+    """Puts the control routes on the systemctl path and records every
+    systemctl_start / systemctl_stop call instead of running sudo. The
+    detached-spawn and PID-kill helpers are made to fail loudly, so any test
+    that accidentally takes the dev-box path is caught."""
+    monkeypatch.setenv("INVOCATION_ID", "test-invocation")
+    calls = []
+    monkeypatch.setattr(
+        process_control, "systemctl_start",
+        lambda name, block=True: calls.append(("start", name, block)),
+    )
+    monkeypatch.setattr(process_control, "systemctl_stop", lambda name: calls.append(("stop", name)))
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("dev-box process path used under systemd")
+
+    monkeypatch.setattr(process_control, "spawn_detached", _forbidden)
+    monkeypatch.setattr(process_control, "force_kill", _forbidden)
+    return calls
+
+
 @pytest.fixture
 def isolated_run_dir(tmp_path, monkeypatch):
     """Points process_control.RUN_DIR at an empty tmp_path, so the log-tail
@@ -269,3 +299,122 @@ def test_api_control_start_holds_lock_across_check_and_spawn(client, monkeypatch
     assert response.status_code == 200
     assert lock_states == [True, True, True]
     assert not _start_lock.locked()
+
+
+def test_api_control_start_under_systemd_uses_systemctl(client, monkeypatch, under_systemd):
+    statuses = iter([
+        process_control.ProcessStatus(name="scheduler", pid=None, alive=False),
+        process_control.ProcessStatus(name="scheduler", pid=777, alive=True),
+    ])
+    monkeypatch.setattr(process_control, "get_process_status", lambda name: next(statuses))
+    clear_calls = []
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: clear_calls.append(name))
+    import tradingsystem.dashboard.routes.control as control_module
+    monkeypatch.setattr(control_module, "_START_POLL_INTERVAL_SECONDS", 0.01)
+
+    response = client.post("/api/control/scheduler/start")
+
+    assert response.status_code == 200
+    assert response.json() == {"started": True, "pid": 777}
+    assert under_systemd == [("start", "scheduler", True)]
+    assert clear_calls == ["scheduler"]
+
+
+def test_api_control_start_under_systemd_surfaces_systemctl_failure(client, monkeypatch, under_systemd):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=None, alive=False),
+    )
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: None)
+
+    def _fail(name, block=True):
+        raise process_control.SystemctlError("sudo -n systemctl start bot-scheduler failed: a password is required")
+
+    monkeypatch.setattr(process_control, "systemctl_start", _fail)
+
+    response = client.post("/api/control/scheduler/start")
+
+    assert response.status_code == 500
+    assert "a password is required" in response.json()["detail"]
+
+
+def test_api_control_force_stop_under_systemd_uses_systemctl_stop(client, monkeypatch, under_systemd):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=555, alive=True),
+    )
+    remove_calls = []
+    monkeypatch.setattr(process_control, "remove_pidfile", lambda name: remove_calls.append(name))
+    clear_calls = []
+    monkeypatch.setattr(process_control, "clear_stop_request", lambda name: clear_calls.append(name))
+
+    response = client.post("/api/control/watchdog/force-stop")
+
+    assert response.status_code == 200
+    assert response.json() == {"stopped": True, "forced": True}
+    assert under_systemd == [("stop", "watchdog")]
+    assert remove_calls == ["watchdog"]
+    assert clear_calls == ["watchdog"]
+
+
+def test_api_control_force_stop_under_systemd_surfaces_systemctl_failure(client, monkeypatch, under_systemd):
+    monkeypatch.setattr(
+        process_control, "get_process_status",
+        lambda name: process_control.ProcessStatus(name=name, pid=555, alive=True),
+    )
+    remove_calls = []
+    monkeypatch.setattr(process_control, "remove_pidfile", lambda name: remove_calls.append(name))
+
+    def _fail(name):
+        raise process_control.SystemctlError("sudo -n systemctl stop bot-scheduler failed: exit code 1")
+
+    monkeypatch.setattr(process_control, "systemctl_stop", _fail)
+
+    response = client.post("/api/control/scheduler/force-stop")
+
+    assert response.status_code == 500
+    assert "exit code 1" in response.json()["detail"]
+    assert remove_calls == []  # nothing claims it stopped when it may not have
+
+
+def test_api_control_stop_under_systemd_is_still_cooperative(client, monkeypatch, under_systemd):
+    """Stop keeps using the stop-request file under systemd: the scheduler
+    finishes its current ticker and exits 0, which Restart=on-failure leaves
+    stopped. Only Force Stop goes through systemctl."""
+    statuses = iter([
+        process_control.ProcessStatus(name="scheduler", pid=555, alive=True),
+        process_control.ProcessStatus(name="scheduler", pid=555, alive=False),
+    ])
+    monkeypatch.setattr(process_control, "get_process_status", lambda name: next(statuses))
+    request_calls = []
+    monkeypatch.setattr(process_control, "request_stop", lambda name: request_calls.append(name))
+    import tradingsystem.dashboard.routes.control as control_module
+    monkeypatch.setattr(control_module, "_STOP_POLL_INTERVAL_SECONDS", 0.01)
+
+    response = client.post("/api/control/scheduler/stop")
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    assert request_calls == ["scheduler"]
+    assert under_systemd == []
+
+
+def test_api_control_run_now_under_systemd_starts_oneshot_unit_without_blocking(client, under_systemd):
+    response = client.post("/api/control/run-now")
+
+    assert response.status_code == 200
+    assert response.json() == {"started": True, "pid": None}
+    assert under_systemd == [("start", "run_once", False)]
+
+
+def test_api_control_run_now_under_systemd_surfaces_systemctl_failure(client, monkeypatch, under_systemd):
+
+    def _fail(name, block=True):
+        raise process_control.SystemctlError("sudo -n systemctl start --no-block bot-run-once failed: exit code 5")
+
+    monkeypatch.setattr(process_control, "systemctl_start", _fail)
+
+    response = client.post("/api/control/run-now")
+
+    assert response.status_code == 500
+    assert "exit code 5" in response.json()["detail"]
