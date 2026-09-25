@@ -19,3 +19,6 @@ frontend/vite.config.js
 frontend/vite.config.d.ts
 frontend/test-results/
 frontend/playwright-report/
+
+# Local agent-skill tooling (skills-lock.json), not project research output
+Research/
