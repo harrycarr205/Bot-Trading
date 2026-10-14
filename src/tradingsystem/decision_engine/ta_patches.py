@@ -4,8 +4,12 @@ Same approach as friction_context.py: adjust tradingagents from our side
 rather than forking the pinned release. All three come from the 2026-10-14
 droplet check-in, where these sources failed on almost every research run:
 
-- StockTwits: Cloudflare challenges the package's bot-style User-Agent with a
-  403; a browser User-Agent gets the same public, keyless endpoint through.
+- StockTwits: the package's public stream endpoint is Cloudflare-blocked from
+  the droplet's datacenter IP. When a StockTwits MCP token exists
+  (stocktwits_login.py), the sentiment analyst gets StockTwits' official MCP
+  data instead (sentiment score + trend, message volume, recent posts);
+  otherwise it falls back to the public endpoint with a browser User-Agent,
+  which works from residential IPs.
 - Reddit: rate-limited (429) on nearly every request from the droplet, each
   failure costing a 5s backoff. Disabled outright — the sentiment analyst is
   prompted to treat an unavailable source as such.
@@ -23,6 +27,8 @@ import logging
 
 from tradingagents.agents.analysts import sentiment_analyst
 from tradingagents.dataflows import fred, stocktwits
+
+from tradingsystem.decision_engine import stocktwits_mcp
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +127,16 @@ EXTRA_FRED_ALIASES = {
 }
 
 
+_original_fetch_stocktwits = stocktwits.fetch_stocktwits_messages
+
+
+def _fetch_stocktwits(ticker: str, limit: int = 30, timeout: float = 10.0) -> str:
+    # Checked per call so a token copied onto the droplet is picked up without a restart.
+    if stocktwits_mcp.TOKEN_PATH.exists():
+        return stocktwits_mcp.fetch_stocktwits_block(ticker, limit=limit, timeout=timeout)
+    return _original_fetch_stocktwits(ticker, limit=limit, timeout=timeout)
+
+
 def _disabled_reddit(ticker: str, *args, **kwargs) -> str:
     return REDDIT_DISABLED_PLACEHOLDER
 
@@ -138,6 +154,7 @@ def _logging_resolve_series_id(original):
 
 def apply_ta_patches() -> None:
     stocktwits._UA = BROWSER_USER_AGENT
+    sentiment_analyst.fetch_stocktwits_messages = _fetch_stocktwits
     sentiment_analyst.fetch_reddit_posts = _disabled_reddit
     fred.MACRO_SERIES.update(EXTRA_FRED_ALIASES)
     if not getattr(fred._resolve_series_id, "_ta_patched", False):
