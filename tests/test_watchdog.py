@@ -93,3 +93,19 @@ def test_no_alert_when_heartbeat_is_actually_recent(db_session, monkeypatch):
     watchdog.check_heartbeat_staleness(db_session, SETTINGS, now=now)
 
     assert alerts == []
+
+
+def test_no_alert_when_heartbeat_landed_between_fire_and_deadline(db_session, monkeypatch):
+    # Heartbeats are written as each ticker finishes (~8 min apart). One that
+    # landed after the 9:35 fire but before the 10:05 deadline proves the
+    # cycle is alive — this used to raise a false alert most days.
+    alerts = []
+    monkeypatch.setattr(watchdog.discord_alerts, "send_alert", lambda settings, message, level="info": alerts.append((level, message)))
+    seen_at = datetime.datetime(2026, 8, 31, 13, 58)  # 9:58 ET, in UTC
+    db_session.add(SchedulerHeartbeat(component="scheduler", last_seen_at=seen_at, last_run_type="pre_market", last_ticker="AAPL"))
+    db_session.flush()
+    now = datetime.datetime(2026, 8, 31, 10, 8, tzinfo=NY)
+
+    watchdog.check_heartbeat_staleness(db_session, SETTINGS, now=now)
+
+    assert alerts == []

@@ -22,3 +22,6 @@ frontend/playwright-report/
 
 # Local agent-skill tooling (skills-lock.json), not project research output
 Research/
+
+# Droplet check-in exports (contain the Discord webhook URL)
+checkin/

@@ -54,3 +54,10 @@ def test_trend_check_short_ma_days_default():
 
 def test_trend_check_long_ma_days_default():
     assert Settings(_env_file=None).trend_check_long_ma_days == 50
+
+
+def test_load_risk_config_includes_min_position_pct():
+    from tradingsystem.config import load_risk_config
+
+    risk_config = load_risk_config()
+    assert risk_config.min_position_pct == 0.01

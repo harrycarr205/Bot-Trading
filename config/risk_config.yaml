@@ -4,6 +4,7 @@
 # it independently of anything the trading agent claims.
 
 max_position_pct: 0.10        # max % of portfolio value in a single position
+min_position_pct: 0.01        # skip buys / fully exit trims that would leave a position below this % of portfolio value
 cash_reserve_pct: 0.20        # minimum % of portfolio that must stay unallocated
 stop_loss_pct: 0.08           # fixed stop-loss per position
 

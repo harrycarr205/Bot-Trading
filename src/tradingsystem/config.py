@@ -124,6 +124,7 @@ class RiskConfig(BaseModel):
     weekly_drawdown_breaker_pct: float
     stale_data_max_age_minutes: int
     max_pct_of_adv: float
+    min_position_pct: float = 0.0
 
 
 class CandidateUniverseConfig(BaseModel):

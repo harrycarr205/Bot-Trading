@@ -23,6 +23,7 @@ from tradingsystem.config import RiskConfig, Settings
 from tradingsystem.db.models import AgentRun, DebateTranscript, Decision
 from tradingsystem.decision_engine.friction_context import build_friction_note, wrap_resolve_instrument_context
 from tradingsystem.decision_engine.ta_config import build_ta_config
+from tradingsystem.decision_engine.ta_patches import apply_ta_patches
 from tradingsystem.decision_engine.tool_audit import ToolCallAuditCallback
 from tradingsystem.execution.alpaca_client import AlpacaClientProtocol, compute_average_daily_dollar_volume
 
@@ -96,6 +97,7 @@ def run_research(
     session.add(agent_run)
     session.flush()
 
+    apply_ta_patches()
     config = build_ta_config(settings)
 
     adv_bars = alpaca_client.get_recent_daily_bars([ticker], lookback_days=21)

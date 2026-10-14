@@ -150,3 +150,56 @@ def test_qty_rounding_to_zero_returns_none():
         "Buy", "AAPL", portfolio, current_price=50_000.0, max_position_pct=0.10, data_timestamp=NOW
     )
     assert result is None
+
+
+# --- min_position_pct (2026-10-14 check-in: repeated Underweight halving left
+# dust positions like JPM ~$330 that still cost two research runs a day) ---
+
+def test_trim_that_would_leave_less_than_minimum_exits_fully():
+    portfolio = make_portfolio(position_value_by_ticker={"AAPL": 1_500.0})
+    result = size_order(
+        "Underweight", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10,
+        data_timestamp=NOW, min_position_pct=0.01,
+    )
+    # halving leaves $800 < $1,000 minimum -> sell all 15 shares instead
+    assert result is not None
+    assert result.side == "sell"
+    assert result.qty == 15
+
+
+def test_trim_that_leaves_at_least_minimum_is_unchanged():
+    portfolio = make_portfolio(position_value_by_ticker={"AAPL": 5_000.0})
+    result = size_order(
+        "Underweight", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10,
+        data_timestamp=NOW, min_position_pct=0.01,
+    )
+    assert result.qty == 25
+
+
+def test_underweight_on_existing_dust_position_closes_it():
+    portfolio = make_portfolio(position_value_by_ticker={"JPM": 330.0})
+    result = size_order(
+        "Underweight", "JPM", portfolio, current_price=330.0, max_position_pct=0.10,
+        data_timestamp=NOW, min_position_pct=0.01,
+    )
+    assert result.side == "sell"
+    assert result.qty == 1
+
+
+def test_buy_that_would_leave_position_below_minimum_is_skipped():
+    # Small account: Overweight target = 0.5 * 10% * $10,000 = $500, below a 6% ($600) minimum.
+    portfolio = make_portfolio(equity=10_000.0, cash=8_000.0)
+    result = size_order(
+        "Overweight", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10,
+        data_timestamp=NOW, min_position_pct=0.06,
+    )
+    assert result is None
+
+
+def test_buy_reaching_minimum_is_placed():
+    portfolio = make_portfolio()
+    result = size_order(
+        "Overweight", "AAPL", portfolio, current_price=100.0, max_position_pct=0.10,
+        data_timestamp=NOW, min_position_pct=0.01,
+    )
+    assert result.qty == 50
