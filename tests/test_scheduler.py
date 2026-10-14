@@ -84,3 +84,59 @@ class _FakeSession:
 
     def rollback(self):
         pass
+
+
+def test_cycles_never_run_concurrently(monkeypatch):
+    # The 12:30 midday cycle used to start while the 9:35 cycle was still
+    # running (each takes ~3.5h), doubling LLM load. Now it waits its turn.
+    active = 0
+    max_active = 0
+    order = []
+    guard = threading.Lock()
+
+    def fake_cycle(session, client, run_type, settings=None):
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        order.append(run_type)
+        time.sleep(0.2)
+        with guard:
+            active -= 1
+
+    monkeypatch.setattr(scheduler_module, "run_full_cycle", fake_cycle)
+    monkeypatch.setattr(scheduler_module, "make_session_factory", lambda: (lambda: _NullSession()))
+    monkeypatch.setattr(scheduler_module, "AlpacaClient", lambda settings: object())
+    monkeypatch.setattr(scheduler_module.process_control, "is_stop_requested", lambda name: False)
+
+    first = threading.Thread(target=scheduler_module._run, args=("pre_market",))
+    second = threading.Thread(target=scheduler_module._run, args=("midday",))
+    first.start()
+    time.sleep(0.05)
+    second.start()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert max_active == 1
+    assert order == ["pre_market", "midday"]
+
+
+def test_queued_cycle_is_skipped_if_stop_requested_while_waiting(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler_module, "run_full_cycle", lambda *a, **k: calls.append(a[2]))
+    monkeypatch.setattr(scheduler_module, "make_session_factory", lambda: (lambda: _NullSession()))
+    monkeypatch.setattr(scheduler_module, "AlpacaClient", lambda settings: object())
+    monkeypatch.setattr(scheduler_module.process_control, "is_stop_requested", lambda name: True)
+
+    scheduler_module._run("midday")
+
+    assert calls == []
+    assert scheduler_module._active_cycles == 0
+
+
+class _NullSession:
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass

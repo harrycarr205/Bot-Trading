@@ -15,6 +15,11 @@ when kelly_shadow_mode is False. In shadow mode (the default), the flat
 fraction is still used for the actual order; the Kelly-derived alternative is
 only logged, for comparison, until there's enough shadow data to trust a
 cutover. See docs/superpowers/plans/2026-09-03-fractional-kelly-sizing.md.
+
+Minimum position size (min_position_pct, a fraction of equity so it scales to
+small accounts): a buy that would leave the position below it is skipped, and
+a trim that would leave less than it becomes a full exit. Repeated Underweight
+halving otherwise leaves dust positions that still get researched every cycle.
 """
 
 from __future__ import annotations
@@ -44,11 +49,13 @@ def size_order(
     data_timestamp: datetime.datetime,
     kelly_target_fraction: float | None = None,
     kelly_shadow_mode: bool = True,
+    min_position_pct: float = 0.0,
 ) -> OrderProposal | None:
     if rating == "Hold" or current_price <= 0:
         return None
 
     existing_notional = portfolio.position_value_by_ticker.get(ticker, 0.0)
+    min_notional = min_position_pct * portfolio.equity
 
     if rating in ("Buy", "Overweight"):
         flat_fraction = _TARGET_FRACTION_OF_MAX[rating]
@@ -74,6 +81,8 @@ def size_order(
         qty = math.floor(need_notional / current_price)
         if qty < 1:
             return None
+        if existing_notional + qty * current_price < min_notional:
+            return None
         return OrderProposal(
             ticker=ticker,
             side="buy",
@@ -92,6 +101,8 @@ def size_order(
     if reduce_by_notional <= 0:
         return None
     qty = math.floor(reduce_by_notional / current_price)
+    if existing_notional - qty * current_price < min_notional:
+        qty = math.floor(existing_notional / current_price + 1e-9)  # full exit
     if qty < 1:
         return None
     return OrderProposal(

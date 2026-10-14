@@ -244,6 +244,12 @@ def run_full_cycle(
             log.info("stop requested — ending cycle early, %d ticker(s) skipped", len(watchlist) - watchlist.index(ticker))
             break
         try:
+            # Cycles now run one at a time, so a queued midday cycle can run
+            # into the close; research after it can't trade and only burns quota.
+            if ticker != watchlist[0] and alpaca_client.get_clock() != "open":
+                log.info("market no longer open — ending %s cycle, %d ticker(s) skipped",
+                         run_type, len(watchlist) - watchlist.index(ticker))
+                break
             result = run_research(
                 session, ticker, trade_date=_ny_today().isoformat(),
                 market_status=market_status, alpaca_client=alpaca_client, risk_config=risk_config,
@@ -286,6 +292,7 @@ def run_full_cycle(
                 risk_config.max_position_pct, data_timestamp=datetime.datetime.utcnow(),
                 kelly_target_fraction=kelly_target_fraction,
                 kelly_shadow_mode=settings.kelly_sizing_shadow_mode,
+                min_position_pct=risk_config.min_position_pct,
             )
             if proposal is not None:
                 adv_bars = alpaca_client.get_recent_daily_bars([ticker], lookback_days=21)

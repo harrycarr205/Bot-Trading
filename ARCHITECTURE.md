@@ -157,7 +157,15 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   experiment — see below; `max_risk_discuss_rounds` stays at 1).
 - Analysts: all four (fundamentals, sentiment, news, technical), equally
   weighted — TradingAgents' default full pipeline.
-- Run cadence: **twice daily per ticker**, pre-market and midday.
+- Run cadence: **twice daily per ticker**, pre-market and midday. Cycles run
+  one at a time (2026-10-14): a midday cycle that fires while the morning one
+  is still going waits for it, and any cycle stops researching once the
+  market closes. Before this the two overlapped and exhausted the Ollama
+  Cloud usage limits.
+- Data vendors: `decision_engine/ta_patches.py` adjusts the pinned
+  tradingagents at runtime — browser User-Agent for StockTwits (Cloudflare
+  403'd the default), Reddit disabled (persistently 429'd), and extra FRED
+  aliases for the macro tool.
 - Every structured output from the decision engine is treated as untrusted:
   schema validated, retried on malformed output, fails closed (no trade) on
   persistent ambiguity — per the brief's non-negotiable on tool-calling

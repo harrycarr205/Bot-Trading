@@ -519,3 +519,25 @@ def test_trend_check_bars_fetch_failure_does_not_block_the_trade(db_session, mon
     assert decision.trend_agrees is None
     # The bars-fetch failure must not block order placement.
     assert client.submit_calls == [("AAPL", "buy", 100, 100.0)]
+
+
+def test_market_closing_mid_cycle_stops_researching_remaining_tickers(db_session, monkeypatch, caplog):
+    # A midday cycle queued behind a long pre-market cycle can run into the
+    # close. Research done after 4pm ET can't trade, so it only burns LLM quota.
+    ScriptedGraph.calls = [(make_final_state("Hold: no clear edge"), "Hold")]
+    monkeypatch.setattr(runner_module, "TradingAgentsGraph", ScriptedGraph)
+
+    class ClosingClient(FakeAlpacaClient):
+        clock_reads = ["open", "closed"]  # cycle start, then before MSFT
+
+        def get_clock(self):
+            return self.clock_reads.pop(0) if len(self.clock_reads) > 1 else self.clock_reads[0]
+
+    client = ClosingClient()
+
+    with caplog.at_level("INFO"):
+        cycle.run_full_cycle(db_session, client, "midday", risk_config=RISK_CONFIG, watchlist=["AAPL", "MSFT"])
+
+    runs = db_session.query(AgentRun).filter(AgentRun.run_type == "midday").all()
+    assert [r.ticker for r in runs] == ["AAPL"]
+    assert "market no longer open" in caplog.text

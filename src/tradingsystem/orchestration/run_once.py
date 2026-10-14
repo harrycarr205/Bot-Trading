@@ -58,5 +58,10 @@ if __name__ == "__main__":
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
+    # The 5-second stop-check job logged two INFO lines per run (~98% of the
+    # journal), and httpx logs every request URL at INFO — including the
+    # Discord webhook URL, which is a secret.
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     main()

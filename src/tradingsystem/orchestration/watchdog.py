@@ -54,13 +54,17 @@ def check_heartbeat_staleness(session: Session, settings: Settings, now: datetim
     if not expected_fires:
         return  # nothing has ever been scheduled to fire yet
 
-    deadline = max(expected_fires) + datetime.timedelta(minutes=settings.heartbeat_grace_minutes)
+    last_fire = max(expected_fires)
+    deadline = last_fire + datetime.timedelta(minutes=settings.heartbeat_grace_minutes)
     if now < deadline:
         return  # not overdue yet
 
     row = heartbeat.get_heartbeat(session)
     last_seen_at = row.last_seen_at if row is not None else None
-    is_stale = last_seen_at is None or last_seen_at.replace(tzinfo=datetime.timezone.utc) < deadline
+    # Any heartbeat since the expected fire proves the scheduler is alive —
+    # requiring one after the deadline alerted whenever a ticker's research
+    # happened to span the deadline (2026-10-14 check-in).
+    is_stale = last_seen_at is None or last_seen_at.replace(tzinfo=datetime.timezone.utc) < last_fire
     if not is_stale:
         return
 
@@ -122,6 +126,11 @@ if __name__ == "__main__":
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
+    # The 5-second stop-check job logged two INFO lines per run (~98% of the
+    # journal), and httpx logs every request URL at INFO — including the
+    # Discord webhook URL, which is a secret.
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     process_control.write_pidfile(_PROCESS_NAME)
     try:

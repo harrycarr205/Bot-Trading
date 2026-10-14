@@ -38,21 +38,34 @@ _PROCESS_NAME = "scheduler"
 _cycle_lock = threading.Lock()
 _active_cycles = 0
 
+# Held for the whole of a cycle so only one research round runs at a time.
+# APScheduler runs different jobs in parallel threads, and a cycle takes
+# ~3.5h, so without this the 12:30 midday cycle started while the 9:35 one
+# was still going — doubling LLM load into the Ollama Cloud usage limits
+# (2026-10-14 check-in). A midday cycle that fires early just waits here.
+_research_lock = threading.Lock()
+
 
 def _run(run_type: str) -> None:
     global _active_cycles
     with _cycle_lock:
         _active_cycles += 1
-    settings = Settings()
-    session = make_session_factory()()
-    client = AlpacaClient(settings)
     try:
-        run_full_cycle(session, client, run_type, settings=settings)
-    except Exception:
-        log.critical("run_full_cycle(%s) raised unhandled — scheduler continuing", run_type, exc_info=True)
-        session.rollback()
+        with _research_lock:
+            if process_control.is_stop_requested(_PROCESS_NAME):
+                log.info("stop requested while %s cycle was queued — skipping it", run_type)
+                return
+            settings = Settings()
+            session = make_session_factory()()
+            client = AlpacaClient(settings)
+            try:
+                run_full_cycle(session, client, run_type, settings=settings)
+            except Exception:
+                log.critical("run_full_cycle(%s) raised unhandled — scheduler continuing", run_type, exc_info=True)
+                session.rollback()
+            finally:
+                session.close()
     finally:
-        session.close()
         with _cycle_lock:
             _active_cycles -= 1
 
@@ -113,6 +126,11 @@ if __name__ == "__main__":
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
+    # The 5-second stop-check job logged two INFO lines per run (~98% of the
+    # journal), and httpx logs every request URL at INFO — including the
+    # Discord webhook URL, which is a secret.
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     process_control.write_pidfile(_PROCESS_NAME)
     try:
