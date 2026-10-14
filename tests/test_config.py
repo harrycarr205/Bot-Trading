@@ -15,10 +15,13 @@ def test_discovery_slots_per_cycle_default():
     assert Settings(_env_file=None).discovery_slots_per_cycle == 4
 
 
-def test_max_debate_rounds_default_is_two():
+def test_max_debate_rounds_default_is_two(monkeypatch):
     # _env_file=None isolates this from whatever the real repo .env currently
     # sets TRADINGAGENTS_MAX_DEBATE_ROUNDS to, same reasoning as the
-    # discovery-slots test above.
+    # discovery-slots test above. The delenv is also needed: importing
+    # tradingagents runs load_dotenv() on the repo .env, copying it into
+    # os.environ for every test that runs afterwards.
+    monkeypatch.delenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", raising=False)
     assert Settings(_env_file=None).tradingagents_max_debate_rounds == 2
 
 
