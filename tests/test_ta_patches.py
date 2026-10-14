@@ -44,3 +44,23 @@ def test_apply_is_idempotent(caplog):
     with caplog.at_level("INFO"):
         fred._resolve_series_id("UNKNOWNXYZ")
     assert caplog.text.count("is not a known alias") == 1
+
+
+def test_sentiment_analyst_uses_mcp_when_token_exists(monkeypatch, tmp_path):
+    from tradingsystem.decision_engine import stocktwits_mcp
+
+    token = tmp_path / "token.json"
+    token.write_text("{}")
+    monkeypatch.setattr(stocktwits_mcp, "TOKEN_PATH", token)
+    monkeypatch.setattr(stocktwits_mcp, "fetch_stocktwits_block", lambda ticker, limit, timeout: f"mcp:{ticker}")
+
+    assert sentiment_analyst.fetch_stocktwits_messages("AAPL", limit=30) == "mcp:AAPL"
+
+
+def test_sentiment_analyst_falls_back_to_public_endpoint_without_token(monkeypatch, tmp_path):
+    from tradingsystem.decision_engine import stocktwits_mcp
+
+    monkeypatch.setattr(stocktwits_mcp, "TOKEN_PATH", tmp_path / "absent.json")
+    monkeypatch.setattr(ta_patches, "_original_fetch_stocktwits", lambda ticker, limit, timeout: f"public:{ticker}")
+
+    assert sentiment_analyst.fetch_stocktwits_messages("AAPL", limit=30) == "public:AAPL"

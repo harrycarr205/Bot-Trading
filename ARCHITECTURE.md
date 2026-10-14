@@ -163,9 +163,14 @@ cycle time as held positions and `DISCOVERY_SLOTS_PER_CYCLE` grow.
   market closes. Before this the two overlapped and exhausted the Ollama
   Cloud usage limits.
 - Data vendors: `decision_engine/ta_patches.py` adjusts the pinned
-  tradingagents at runtime — browser User-Agent for StockTwits (Cloudflare
-  403'd the default), Reddit disabled (persistently 429'd), and extra FRED
-  aliases for the macro tool.
+  tradingagents at runtime — StockTwits via its official MCP server
+  (`decision_engine/stocktwits_mcp.py`; sentiment score + 1-week trend,
+  message volume, 30 recent posts) when `run/stocktwits_token.json` exists,
+  else the public endpoint with a browser User-Agent; Reddit disabled
+  (persistently 429'd); extra FRED aliases for the macro tool. The token is
+  created once with `python -m tradingsystem.decision_engine.stocktwits_login`
+  on a machine with a browser, then copied to the droplet's `run/` (chmod
+  600). The bot refreshes it itself and persists rotated refresh tokens.
 - Every structured output from the decision engine is treated as untrusted:
   schema validated, retried on malformed output, fails closed (no trade) on
   persistent ambiguity — per the brief's non-negotiable on tool-calling
